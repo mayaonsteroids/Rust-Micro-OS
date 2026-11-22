@@ -1,0 +1,24 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Intermediate and temporary files
+*.ppm
+*.o
+*.tmp
+__pycache__/
+*.pyc
+
+# Editor and OS temporary files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+serial.log
+
+# Temporary staging and raw traces
+iso/staging/
+traces/*.raw
+results/*.tmp
