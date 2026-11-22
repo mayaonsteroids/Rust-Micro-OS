@@ -182,13 +182,14 @@ cargo install bootimage
 
 ### Step 1: Compile the Kernel and Generate Raw Bootimage
 ```bash
-# Typecheck and verify compilation
-cargo check --target x86_64-micro_os.json
+# Typecheck and verify compilation (default target x86_64-unknown-none)
+cargo check
 
 # Build the bootable raw disk binary
-cargo bootimage --target x86_64-micro_os.json
+cargo bootimage
+# (Or explicitly: cargo bootimage --target x86_64-unknown-none)
 ```
-*Output Artifact:* `target/x86_64-micro_os/debug/bootimage-rust-micro-os.bin` (791,552 bytes).
+*Output Artifact:* `target/x86_64-unknown-none/debug/bootimage-rust-micro-os.bin` (791,552 bytes).
 
 ### Step 2: Build the Optical Bootable ISO Image
 ```bash

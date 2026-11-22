@@ -206,7 +206,8 @@ The visual output confirms clean rendering of the OS banner, subsystem logs, tes
 
 ### 1. Build the Kernel & Raw Bootimage
 ```bash
-cargo bootimage --target x86_64-micro_os.json
+cargo bootimage
+# Or explicitly: cargo bootimage --target x86_64-unknown-none
 ```
 Produces: `target/x86_64-unknown-none/debug/bootimage-rust-micro-os.bin` (791,552 bytes).
 

@@ -438,7 +438,8 @@ src/
 </ul>
 <h3>1. Build the Kernel &amp; Raw Bootimage</h3>
 <pre><code>
-cargo bootimage --target x86_64-micro_os.json
+cargo bootimage
+# Or explicitly: cargo bootimage --target x86_64-unknown-none
 </code></pre>
 <p>Produces: <code>target/x86_64-unknown-none/debug/bootimage-rust-micro-os.bin</code> (791,552 bytes).</p>
 <h3>2. Build the Optical Bootable ISO</h3>
