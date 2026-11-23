@@ -1,7 +1,8 @@
 //! Network Protocol Stack and Packet Dispatcher.
 //!
-//! Orchestrates Ethernet, ARP, IPv4, ICMP, and UDP frame processing.
-//! Provides synchronous ARP resolution, UDP transmission, and ICMP Ping.
+//! Orchestrates Ethernet, ARP, IPv4, ICMP, UDP, DHCP, and DNS packet processing.
+//! Provides synchronous ARP resolution, UDP transmission, ICMP Ping,
+//! DHCP lease acquisition, and DNS name resolution.
 
 use spin::Mutex;
 use super::ethernet::{EthernetHeader, MacAddress, BROADCAST_MAC, ETHERTYPE_ARP, ETHERTYPE_IPV4};
@@ -9,7 +10,14 @@ use super::arp::{ArpPacket, ARP_OPCODE_REQUEST, ARP_CACHE};
 use super::ipv4::{Ipv4Header, Ipv4Address, IP_PROTOCOL_ICMP, IP_PROTOCOL_UDP, IPV4_BROADCAST};
 use super::udp::UdpHeader;
 use super::icmp::{IcmpEchoHeader, ICMP_TYPE_ECHO_REPLY, ICMP_TYPE_ECHO_REQUEST, ICMP_CODE_DEFAULT};
-use super::config::get_config;
+use super::dhcp::{
+    DhcpLease, ParsedDhcpResponse, DHCP_CLIENT_PORT, DHCP_SERVER_PORT,
+    DHCP_MSG_OFFER, DHCP_MSG_ACK, build_dhcp_discover, build_dhcp_request,
+};
+use super::dns::{DNS_PORT, build_dns_query, parse_dns_response, DNS_CACHE};
+use super::config::{get_config, apply_dhcp_lease};
+
+pub const DNS_CLIENT_PORT: u16 = 53535;
 
 /// Bounded storage for the most recently received UDP datagram.
 #[derive(Debug, Clone, Copy)]
@@ -35,12 +43,20 @@ pub struct ReceivedIcmpEcho {
 
 pub static LAST_ICMP_REPLY: Mutex<Option<ReceivedIcmpEcho>> = Mutex::new(None);
 
+/// Bounded storage for incoming DHCP server responses.
+pub static LAST_DHCP_RESPONSE: Mutex<Option<ParsedDhcpResponse>> = Mutex::new(None);
+
+/// Bounded storage for incoming DNS server responses (xid, buffer, length).
+pub static LAST_DNS_RESPONSE: Mutex<Option<(u16, [u8; 512], usize)>> = Mutex::new(None);
+
 /// Global packet identification counter for IPv4 headers.
 static IP_PACKET_ID: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(1);
+static DHCP_XID_COUNTER: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x3903F320);
+static DNS_XID_COUNTER: core::sync::atomic::AtomicU16 = core::sync::atomic::AtomicU16::new(0x5430);
 
 /// Processes a single incoming raw Ethernet frame received from the hardware driver.
 ///
-/// Dispatches to ARP, IPv4, ICMP, or UDP handlers with strict bounds checking.
+/// Dispatches to ARP, IPv4, ICMP, UDP, DHCP, or DNS handlers with strict bounds checking.
 pub fn process_incoming_frame(frame: &[u8]) {
     let (eth_header, eth_payload) = match EthernetHeader::parse(frame) {
         Ok(res) => res,
@@ -81,8 +97,13 @@ pub fn process_incoming_frame(frame: &[u8]) {
         }
         ETHERTYPE_IPV4 => {
             if let Ok((ip_header, ip_payload)) = Ipv4Header::parse(eth_payload) {
-                // Ignore packets not destined for us or broadcast
-                if ip_header.dst_ip != cfg.ip && ip_header.dst_ip != IPV4_BROADCAST {
+                // Filter packets: accept if destined for our IP, broadcast, or directed to our MAC
+                let is_for_us = ip_header.dst_ip == cfg.ip
+                    || ip_header.dst_ip == IPV4_BROADCAST
+                    || eth_header.dest_mac == cfg.mac
+                    || eth_header.dest_mac == BROADCAST_MAC;
+
+                if !is_for_us {
                     return;
                 }
 
@@ -134,8 +155,24 @@ pub fn process_incoming_frame(frame: &[u8]) {
                     }
                     IP_PROTOCOL_UDP => {
                         if let Ok((udp_header, udp_payload)) = UdpHeader::parse(ip_payload) {
-                            // Check checksum
-                            if UdpHeader::verify_checksum(&ip_header.src_ip, &ip_header.dst_ip, ip_payload) {
+                            // Check for DHCP client port (68)
+                            if udp_header.dst_port == DHCP_CLIENT_PORT {
+                                if let Ok(dhcp_resp) = ParsedDhcpResponse::parse(udp_payload) {
+                                    *LAST_DHCP_RESPONSE.lock() = Some(dhcp_resp);
+                                }
+                            }
+                            // Check for DNS response (from DNS port 53 or directed to client port 53535)
+                            else if udp_header.dst_port == DNS_CLIENT_PORT || udp_header.src_port == DNS_PORT {
+                                if udp_payload.len() >= 12 {
+                                    let xid = ((udp_payload[0] as u16) << 8) | (udp_payload[1] as u16);
+                                    let mut buf = [0u8; 512];
+                                    let copy_len = core::cmp::min(udp_payload.len(), 512);
+                                    buf[..copy_len].copy_from_slice(&udp_payload[..copy_len]);
+                                    *LAST_DNS_RESPONSE.lock() = Some((xid, buf, copy_len));
+                                }
+                            }
+                            // General UDP datagram
+                            else if UdpHeader::verify_checksum(&ip_header.src_ip, &ip_header.dst_ip, ip_payload) {
                                 let mut p_buf = [0u8; 256];
                                 let copy_len = core::cmp::min(udp_payload.len(), 256);
                                 p_buf[..copy_len].copy_from_slice(&udp_payload[..copy_len]);
@@ -159,14 +196,11 @@ pub fn process_incoming_frame(frame: &[u8]) {
     }
 }
 
-/// Polls the network hardware for any incoming frames and processes them.
-///
-/// Returns the number of packets processed during this poll.
+/// Polls the network hardware for incoming frames and processes them.
 pub fn poll_network() -> usize {
     let mut count = 0;
     let mut rx_buf = [0u8; 1518];
 
-    // Poll up to 16 frames per call to prevent starvation
     for _ in 0..16 {
         if let Some(len) = super::receive_packet(&mut rx_buf) {
             process_incoming_frame(&rx_buf[..len]);
@@ -180,18 +214,13 @@ pub fn poll_network() -> usize {
 }
 
 /// Resolves an IPv4 address to an Ethernet MAC address via ARP.
-///
-/// First checks the local ARP cache. If not found, broadcasts an ARP request
-/// and polls for the ARP reply within a bounded timeout.
 pub fn resolve_arp(target_ip: Ipv4Address, timeout_spins: usize) -> Result<MacAddress, &'static str> {
-    // 1. Check cache
     if let Some(mac) = ARP_CACHE.lock().lookup(&target_ip) {
         return Ok(mac);
     }
 
     let cfg = get_config();
 
-    // 2. Build ARP request
     let mut arp_payload = [0u8; 28];
     ArpPacket::build_request(cfg.mac, cfg.ip, target_ip, &mut arp_payload)?;
 
@@ -204,10 +233,8 @@ pub fn resolve_arp(target_ip: Ipv4Address, timeout_spins: usize) -> Result<MacAd
         &mut frame,
     )?;
 
-    // 3. Transmit ARP request
     super::send_packet(&frame[..frame_len])?;
 
-    // 4. Poll incoming frames until target IP is resolved or timeout expires
     let mut rx_buf = [0u8; 1518];
     for _ in 0..timeout_spins {
         if let Some(len) = super::receive_packet(&mut rx_buf) {
@@ -219,7 +246,6 @@ pub fn resolve_arp(target_ip: Ipv4Address, timeout_spins: usize) -> Result<MacAd
         core::hint::spin_loop();
     }
 
-    // Final check
     if let Some(mac) = ARP_CACHE.lock().lookup(&target_ip) {
         Ok(mac)
     } else {
@@ -227,7 +253,7 @@ pub fn resolve_arp(target_ip: Ipv4Address, timeout_spins: usize) -> Result<MacAd
     }
 }
 
-/// Transmits an IPv4 packet, automatically resolving destination or gateway MAC address.
+/// Transmits an IPv4 packet, resolving destination or gateway MAC address.
 pub fn send_ipv4(
     dst_ip: Ipv4Address,
     protocol: u8,
@@ -235,14 +261,12 @@ pub fn send_ipv4(
 ) -> Result<(), &'static str> {
     let cfg = get_config();
 
-    // Determine target IP for ARP resolution (local host or default gateway)
     let arp_target = if cfg.is_local_subnet(&dst_ip) || dst_ip == IPV4_BROADCAST {
         dst_ip
     } else {
         cfg.gateway
     };
 
-    // If destination is broadcast, use broadcast MAC directly
     let dest_mac = if dst_ip == IPV4_BROADCAST {
         BROADCAST_MAC
     } else {
@@ -294,11 +318,53 @@ pub fn send_udp(
     send_ipv4(dst_ip, IP_PROTOCOL_UDP, &udp_buf[..udp_len])
 }
 
-/// Sends an ICMP Echo Request and waits for the matching ICMP Echo Reply.
+/// Transmits a broadcast UDP datagram with source IP 0.0.0.0 and destination 255.255.255.255.
 ///
-/// Returns the round-trip poll spin count on success.
+/// Specifically utilized for standard BOOTP/DHCP client discovery and requests.
+pub fn send_broadcast_udp(
+    src_port: u16,
+    dst_port: u16,
+    payload: &[u8],
+) -> Result<(), &'static str> {
+    let cfg = get_config();
+    let src_ip = [0, 0, 0, 0];
+    let dst_ip = IPV4_BROADCAST;
+
+    let mut udp_buf = [0u8; 1472];
+    let udp_len = UdpHeader::build_packet(
+        &src_ip,
+        &dst_ip,
+        src_port,
+        dst_port,
+        payload,
+        &mut udp_buf,
+    )?;
+
+    let mut ip_buf = [0u8; 1500];
+    let id = IP_PACKET_ID.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let ip_len = Ipv4Header::build_packet(
+        src_ip,
+        dst_ip,
+        IP_PROTOCOL_UDP,
+        id,
+        &udp_buf[..udp_len],
+        &mut ip_buf,
+    )?;
+
+    let mut eth_buf = [0u8; 1518];
+    let eth_len = EthernetHeader::build_frame(
+        BROADCAST_MAC,
+        cfg.mac,
+        ETHERTYPE_IPV4,
+        &ip_buf[..ip_len],
+        &mut eth_buf,
+    )?;
+
+    super::send_packet(&eth_buf[..eth_len])
+}
+
+/// Sends an ICMP Echo Request and waits for the matching ICMP Echo Reply.
 pub fn ping(dst_ip: Ipv4Address, timeout_spins: usize) -> Result<usize, &'static str> {
-    // Clear previous ICMP reply
     *LAST_ICMP_REPLY.lock() = None;
 
     let ident = 0x1234;
@@ -315,10 +381,8 @@ pub fn ping(dst_ip: Ipv4Address, timeout_spins: usize) -> Result<usize, &'static
         &mut icmp_buf,
     )?;
 
-    // Transmit ICMP Echo Request
     send_ipv4(dst_ip, IP_PROTOCOL_ICMP, &icmp_buf[..icmp_len])?;
 
-    // Poll for Echo Reply
     let mut rx_buf = [0u8; 1518];
     for spin in 0..timeout_spins {
         if let Some(len) = super::receive_packet(&mut rx_buf) {
@@ -334,4 +398,113 @@ pub fn ping(dst_ip: Ipv4Address, timeout_spins: usize) -> Result<usize, &'static
     }
 
     Err("Ping request timed out: no ICMP Echo Reply received")
+}
+
+/// Executes a full DHCP 4-way handshake (DISCOVER -> OFFER -> REQUEST -> ACK)
+/// to dynamically acquire an IPv4 lease from the local network.
+pub fn acquire_dhcp_lease(timeout_spins: usize) -> Result<DhcpLease, &'static str> {
+    let cfg = get_config();
+    let xid = DHCP_XID_COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+
+    // 1. Send DHCPDISCOVER
+    *LAST_DHCP_RESPONSE.lock() = None;
+    let mut discover_buf = [0u8; 350];
+    let disc_len = build_dhcp_discover(cfg.mac, xid, &mut discover_buf)?;
+    send_broadcast_udp(DHCP_CLIENT_PORT, DHCP_SERVER_PORT, &discover_buf[..disc_len])?;
+
+    // 2. Poll for DHCPOFFER
+    let mut rx_buf = [0u8; 1518];
+    let mut offer_found: Option<ParsedDhcpResponse> = None;
+    for _ in 0..timeout_spins {
+        if let Some(len) = super::receive_packet(&mut rx_buf) {
+            process_incoming_frame(&rx_buf[..len]);
+            if let Some(resp) = *LAST_DHCP_RESPONSE.lock() {
+                if resp.xid == xid && resp.msg_type == Some(DHCP_MSG_OFFER) {
+                    offer_found = Some(resp);
+                    break;
+                }
+            }
+        }
+        core::hint::spin_loop();
+    }
+
+    let offer = offer_found.ok_or("DHCP timeout waiting for DHCPOFFER")?;
+    let offered_ip = offer.yiaddr;
+    let server_id = offer.server_id.unwrap_or([10, 0, 2, 2]);
+
+    // 3. Send DHCPREQUEST
+    *LAST_DHCP_RESPONSE.lock() = None;
+    let mut request_buf = [0u8; 350];
+    let req_len = build_dhcp_request(cfg.mac, xid, offered_ip, server_id, &mut request_buf)?;
+    send_broadcast_udp(DHCP_CLIENT_PORT, DHCP_SERVER_PORT, &request_buf[..req_len])?;
+
+    // 4. Poll for DHCPACK
+    let mut ack_found: Option<ParsedDhcpResponse> = None;
+    for _ in 0..timeout_spins {
+        if let Some(len) = super::receive_packet(&mut rx_buf) {
+            process_incoming_frame(&rx_buf[..len]);
+            if let Some(resp) = *LAST_DHCP_RESPONSE.lock() {
+                if resp.xid == xid && resp.msg_type == Some(DHCP_MSG_ACK) {
+                    ack_found = Some(resp);
+                    break;
+                }
+            }
+        }
+        core::hint::spin_loop();
+    }
+
+    let ack = ack_found.ok_or("DHCP timeout waiting for DHCPACK")?;
+
+    let lease = DhcpLease {
+        assigned_ip: ack.yiaddr,
+        subnet_mask: ack.subnet_mask.unwrap_or([255, 255, 255, 0]),
+        gateway: ack.router.unwrap_or([10, 0, 2, 2]),
+        dns_server: ack.dns_server.unwrap_or([10, 0, 2, 3]),
+        lease_time_secs: ack.lease_time.unwrap_or(86400),
+        server_ip: server_id,
+    };
+
+    // Apply the validated lease to global configuration
+    apply_dhcp_lease(&lease);
+
+    Ok(lease)
+}
+
+/// Resolves a domain name into an IPv4 address using DNS over UDP port 53.
+pub fn resolve_dns(domain: &str, timeout_spins: usize) -> Result<Ipv4Address, &'static str> {
+    // 1. Check in-memory DNS cache
+    if let Some(cached_ip) = DNS_CACHE.lock().lookup(domain) {
+        return Ok(cached_ip);
+    }
+
+    let cfg = get_config();
+    let dns_server = cfg.dns;
+
+    let xid = DNS_XID_COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    *LAST_DNS_RESPONSE.lock() = None;
+
+    let mut query_buf = [0u8; 256];
+    let query_len = build_dns_query(domain, xid, &mut query_buf)?;
+
+    // Send DNS query UDP packet to DNS server:53 from ephemeral port 53535
+    send_udp(dns_server, DNS_PORT, DNS_CLIENT_PORT, &query_buf[..query_len])?;
+
+    // Poll for DNS response
+    let mut rx_buf = [0u8; 1518];
+    for _ in 0..timeout_spins {
+        if let Some(len) = super::receive_packet(&mut rx_buf) {
+            process_incoming_frame(&rx_buf[..len]);
+
+            if let Some((resp_xid, ref resp_buf, resp_len)) = *LAST_DNS_RESPONSE.lock() {
+                if resp_xid == xid {
+                    let resolved_ip = parse_dns_response(&resp_buf[..resp_len], xid)?;
+                    DNS_CACHE.lock().insert(domain, resolved_ip);
+                    return Ok(resolved_ip);
+                }
+            }
+        }
+        core::hint::spin_loop();
+    }
+
+    Err("DNS resolution timed out: no response from DNS server")
 }

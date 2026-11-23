@@ -1,11 +1,12 @@
 //! Network Configuration and Interface State.
 //!
 //! Stores the guest MAC address, IPv4 address, default gateway, subnet mask,
-//! and DNS server. Distinguishes static configuration from future DHCP acquisition.
+//! DNS server, and DHCP lease information.
 
 use spin::Mutex;
 use super::ethernet::MacAddress;
 use super::ipv4::Ipv4Address;
+use super::dhcp::DhcpLease;
 
 /// Active configuration mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +14,16 @@ pub enum ConfigMode {
     Static,
     DhcpPending,
     DhcpConfigured,
+}
+
+impl ConfigMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConfigMode::Static => "Static (Fallback)",
+            ConfigMode::DhcpPending => "DHCP (Acquiring...)",
+            ConfigMode::DhcpConfigured => "DHCP (Dynamic Lease Active)",
+        }
+    }
 }
 
 /// Global Network Interface Configuration.
@@ -24,6 +35,7 @@ pub struct NetworkConfig {
     pub gateway: Ipv4Address,
     pub dns: Ipv4Address,
     pub mode: ConfigMode,
+    pub lease_time_secs: Option<u32>,
 }
 
 impl NetworkConfig {
@@ -40,6 +52,7 @@ impl NetworkConfig {
             gateway: [10, 0, 2, 2],
             dns: [10, 0, 2, 3],
             mode: ConfigMode::Static,
+            lease_time_secs: None,
         }
     }
 
@@ -61,6 +74,7 @@ pub static NETWORK_CONFIG: Mutex<NetworkConfig> = Mutex::new(NetworkConfig {
     gateway: [10, 0, 2, 2],
     dns: [10, 0, 2, 3],
     mode: ConfigMode::Static,
+    lease_time_secs: None,
 });
 
 /// Updates the MAC address in the global network configuration.
@@ -82,4 +96,20 @@ pub fn set_static_config(ip: Ipv4Address, subnet_mask: Ipv4Address, gateway: Ipv
     cfg.gateway = gateway;
     cfg.dns = dns;
     cfg.mode = ConfigMode::Static;
+    cfg.lease_time_secs = None;
+}
+
+/// Applies an acquired DHCP lease to the global configuration and refreshes the ARP cache.
+pub fn apply_dhcp_lease(lease: &DhcpLease) {
+    {
+        let mut cfg = NETWORK_CONFIG.lock();
+        cfg.ip = lease.assigned_ip;
+        cfg.subnet_mask = lease.subnet_mask;
+        cfg.gateway = lease.gateway;
+        cfg.dns = lease.dns_server;
+        cfg.mode = ConfigMode::DhcpConfigured;
+        cfg.lease_time_secs = Some(lease.lease_time_secs);
+    }
+    // Refresh ARP cache to prevent stale IP-to-MAC associations
+    super::arp::ARP_CACHE.lock().clear();
 }

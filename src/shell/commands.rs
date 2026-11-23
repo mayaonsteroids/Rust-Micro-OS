@@ -73,7 +73,7 @@ fn cmd_help() {
     kprintln!("  hostname      - Display or set system hostname");
     kprintln!("  uname [-a]    - Display system and architecture information");
     kprintln!("  pci           - Enumerate and display PCI bus devices and BARs");
-    kprintln!("  net [cmd]     - Network interface status, info, arp cache, ping, or test");
+    kprintln!("  net [cmd]     - Network stack: info, arp, dhcp, dns, ping, udp, test");
     kprintln!("  list          - List available Ring 3 user programs");
     kprintln!("  tasks         - Display active and registered kernel tasks and processes");
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
@@ -295,7 +295,87 @@ fn cmd_net(args: &str) {
             "  DNS Server:   {}.{}.{}.{}",
             cfg.dns[0], cfg.dns[1], cfg.dns[2], cfg.dns[3]
         );
-        kprintln!("  Config Mode:  Static (QEMU SLIRP Virtual Network)");
+        kprintln!("  Config Mode:  {}", cfg.mode.as_str());
+        if let Some(lease_secs) = cfg.lease_time_secs {
+            kprintln!("  DHCP Lease:   {} seconds", lease_secs);
+        }
+        return;
+    }
+
+    if subcmd == "dhcp" {
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("[DHCP] Broadcasting DHCPDISCOVER on local network...");
+        vga::set_color(Color::White, Color::Black);
+
+        match crate::net::acquire_dhcp_lease(20_000_000) {
+            Ok(lease) => {
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!("[DHCP] DHCP lease acquired successfully!");
+                vga::set_color(Color::White, Color::Black);
+                kprintln!(
+                    "  Assigned IP:  {}.{}.{}.{}",
+                    lease.assigned_ip[0], lease.assigned_ip[1], lease.assigned_ip[2], lease.assigned_ip[3]
+                );
+                kprintln!(
+                    "  Subnet Mask:  {}.{}.{}.{}",
+                    lease.subnet_mask[0], lease.subnet_mask[1], lease.subnet_mask[2], lease.subnet_mask[3]
+                );
+                kprintln!(
+                    "  Gateway:      {}.{}.{}.{}",
+                    lease.gateway[0], lease.gateway[1], lease.gateway[2], lease.gateway[3]
+                );
+                kprintln!(
+                    "  DNS Server:   {}.{}.{}.{}",
+                    lease.dns_server[0], lease.dns_server[1], lease.dns_server[2], lease.dns_server[3]
+                );
+                kprintln!("  Lease Time:   {} seconds", lease.lease_time_secs);
+                kprintln!(
+                    "  DHCP Server:  {}.{}.{}.{}",
+                    lease.server_ip[0], lease.server_ip[1], lease.server_ip[2], lease.server_ip[3]
+                );
+            }
+            Err(e) => {
+                vga::set_color(Color::LightRed, Color::Black);
+                kprintln!("[DHCP] Lease acquisition failed: {}", e);
+                vga::set_color(Color::White, Color::Black);
+            }
+        }
+        return;
+    }
+
+    if subcmd.starts_with("dns") {
+        let domain = subcmd["dns".len()..].trim();
+        if domain.is_empty() {
+            vga::set_color(Color::Yellow, Color::Black);
+            kprintln!("Usage: net dns <domain>");
+            kprintln!("Example: net dns example.com");
+            vga::set_color(Color::White, Color::Black);
+            return;
+        }
+
+        let cfg = crate::net::get_config();
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!(
+            "[DNS] Querying A-record for '{}' via {}.{}.{}.{}:53...",
+            domain, cfg.dns[0], cfg.dns[1], cfg.dns[2], cfg.dns[3]
+        );
+        vga::set_color(Color::White, Color::Black);
+
+        match crate::net::resolve_dns(domain, 20_000_000) {
+            Ok(resolved_ip) => {
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!(
+                    "[DNS] '{}' resolved to {}.{}.{}.{}",
+                    domain, resolved_ip[0], resolved_ip[1], resolved_ip[2], resolved_ip[3]
+                );
+                vga::set_color(Color::White, Color::Black);
+            }
+            Err(e) => {
+                vga::set_color(Color::LightRed, Color::Black);
+                kprintln!("[DNS] Resolution failed: {}", e);
+                vga::set_color(Color::White, Color::Black);
+            }
+        }
         return;
     }
 
