@@ -32,7 +32,7 @@ impl AppId {
         AppId::About,
     ];
 
-    /// Returns the application title.
+    /// Returns the application title for logging and dispatch.
     pub const fn title(self) -> &'static str {
         match self {
             AppId::Terminal => "Terminal",
@@ -46,7 +46,21 @@ impl AppId {
         }
     }
 
-    /// Returns the short dock label (max 8 characters).
+    /// Returns the long window title displayed in the window header bar.
+    pub const fn window_title(self) -> &'static str {
+        match self {
+            AppId::Terminal => "Terminal",
+            AppId::Network => "Network - Connection & Wi-Fi Control Center",
+            AppId::Browser => "Web Browser",
+            AppId::Files => "Files",
+            AppId::Music => "Music Player",
+            AppId::SysMon => "System Monitor",
+            AppId::Settings => "Settings",
+            AppId::About => "About",
+        }
+    }
+
+    /// Returns the short dock label (centered below the icon).
     pub const fn dock_label(self) -> &'static str {
         match self {
             AppId::Terminal => "Terminal",
@@ -57,20 +71,6 @@ impl AppId {
             AppId::SysMon => "SysMon",
             AppId::Settings => "Settings",
             AppId::About => "About",
-        }
-    }
-
-    /// Returns the 4-character icon glyph representation.
-    pub const fn icon_symbol(self) -> &'static str {
-        match self {
-            AppId::Terminal => " >_ ",
-            AppId::Network => " ## ",
-            AppId::Browser => " WWW",
-            AppId::Files => " UFS",
-            AppId::Music => "  * ", // Musical note or star
-            AppId::SysMon => " ~~~",
-            AppId::Settings => " [o]",
-            AppId::About => " (i)",
         }
     }
 
@@ -105,10 +105,10 @@ impl AppId {
 pub fn draw_dock(compositor: &mut Compositor, active_app: AppId) {
     let dock_width = 12; // columns 0..11
 
-    // 1. Fill dock background
+    // 1. Fill dock background with Light Lavender (#E9DFFF)
     compositor.fill_rect(0, 0, dock_width, 25, b' ', Color::White, Color::Black);
 
-    // 2. Draw vertical dividing border at column 11
+    // 2. Draw vertical dividing border at column 11 in Deep Purple (#5C3C8A)
     for row in 0..25 {
         compositor.put_char(
             dock_width - 1,
@@ -119,51 +119,91 @@ pub fn draw_dock(compositor: &mut Compositor, active_app: AppId) {
         );
     }
 
-    // 3. Render 8 application icons (each takes 3 rows: row 0..23)
+    // 3. Render 8 application icons (each takes 3 rows: rows 0..23)
     for (i, app) in AppId::ALL.iter().enumerate() {
         let start_row = i * 3;
         let is_active = *app == active_app;
 
-        let (box_fg, box_bg, text_fg, text_bg) = if is_active {
-            // Highlighted active item (Medium Purple background or vibrant text)
-            (Color::LightCyan, Color::Black, Color::LightCyan, Color::Black)
+        let icon_col = 2; // columns 2..7 (width 6)
+
+        let (border_fg, border_bg, text_fg, text_bg) = if is_active {
+            // Active selection: elevated Light Window Surface (#F8F5FF) with Purple accent border
+            (Color::LightCyan, Color::Black, Color::LightCyan, Color::LightGray)
         } else {
-            // Normal muted item
-            (Color::LightGray, Color::Black, Color::White, Color::Black)
+            // Normal unselected item: Dark Plum text on Light Lavender background
+            (Color::DarkGray, Color::Black, Color::White, Color::Black)
         };
 
-        // Icon Box (Row 0 & 1): e.g. [ >_ ]
-        let icon_col = 2;
+        // Selection Indicator at column 0: ►
         if is_active {
-            // Draw active indicator arrow at column 0
             compositor.put_char(0, start_row + 1, glyphs::ARROW_RIGHT, Color::LightCyan, Color::Black);
         } else {
             compositor.put_char(0, start_row + 1, b' ', Color::White, Color::Black);
         }
 
-        // Box border top
-        compositor.draw_string(icon_col, start_row, "+----+", box_fg, box_bg);
-
-        // Box interior with icon glyph
-        compositor.put_char(icon_col, start_row + 1, b'|', box_fg, box_bg);
-        if *app == AppId::Music {
-            // Render custom music note CP437 glyph
-            compositor.draw_string(icon_col + 1, start_row + 1, " ", text_fg, text_bg);
-            compositor.put_char(icon_col + 2, start_row + 1, glyphs::MUSIC_NOTE, text_fg, text_bg);
-            compositor.draw_string(icon_col + 3, start_row + 1, "  ", text_fg, text_bg);
-        } else {
-            compositor.draw_string(icon_col + 1, start_row + 1, app.icon_symbol(), text_fg, text_bg);
+        // Row start_row: Top border of icon box
+        compositor.put_char(icon_col, start_row, glyphs::TOP_LEFT, border_fg, border_bg);
+        for c in 1..5 {
+            compositor.put_char(icon_col + c, start_row, glyphs::HORIZONTAL, border_fg, border_bg);
         }
-        compositor.put_char(icon_col + 5, start_row + 1, b'|', box_fg, box_bg);
+        compositor.put_char(icon_col + 5, start_row, glyphs::TOP_RIGHT, border_fg, border_bg);
 
-        // Icon label on row 2 (centered in 11 columns)
+        // Row start_row + 1: Box interior with distinctive icon glyphs
+        compositor.put_char(icon_col, start_row + 1, glyphs::VERTICAL, border_fg, border_bg);
+
+        match *app {
+            AppId::Terminal => {
+                // >_ terminal prompt
+                compositor.draw_string(icon_col + 1, start_row + 1, " >_ ", text_fg, text_bg);
+            }
+            AppId::Network => {
+                // [п] network adapter symbol (Greek pi 0xE3)
+                compositor.put_char(icon_col + 1, start_row + 1, b' ', text_fg, text_bg);
+                compositor.put_char(icon_col + 2, start_row + 1, b'[', text_fg, text_bg);
+                compositor.put_char(icon_col + 3, start_row + 1, 0xE3, text_fg, text_bg); // CP437 Greek pi 'п'
+                compositor.put_char(icon_col + 4, start_row + 1, b']', text_fg, text_bg);
+            }
+            AppId::Browser => {
+                // WWW world wide web
+                compositor.draw_string(icon_col + 1, start_row + 1, "WWW ", text_fg, text_bg);
+            }
+            AppId::Files => {
+                // UFS Unix file system
+                compositor.draw_string(icon_col + 1, start_row + 1, "UFS ", text_fg, text_bg);
+            }
+            AppId::Music => {
+                // Spotify-inspired music note
+                compositor.put_char(icon_col + 1, start_row + 1, b' ', text_fg, text_bg);
+                compositor.put_char(icon_col + 2, start_row + 1, glyphs::MUSIC_NOTE, text_fg, text_bg);
+                compositor.draw_string(icon_col + 3, start_row + 1, "  ", text_fg, text_bg);
+            }
+            AppId::SysMon => {
+                // Hardware telemetry wave
+                compositor.draw_string(icon_col + 1, start_row + 1, "-o--", text_fg, text_bg);
+            }
+            AppId::Settings => {
+                // Configuration gear/asterisk
+                compositor.put_char(icon_col + 1, start_row + 1, b' ', text_fg, text_bg);
+                compositor.put_char(icon_col + 2, start_row + 1, glyphs::GEAR, text_fg, text_bg);
+                compositor.draw_string(icon_col + 3, start_row + 1, "  ", text_fg, text_bg);
+            }
+            AppId::About => {
+                // Information symbol
+                compositor.draw_string(icon_col + 1, start_row + 1, " i  ", text_fg, text_bg);
+            }
+        }
+
+        compositor.put_char(icon_col + 5, start_row + 1, glyphs::VERTICAL, border_fg, border_bg);
+
+        // Row start_row + 2: Icon label centered in 11 columns
         let label = app.dock_label();
         let label_col = if label.len() < 10 {
             (10 - label.len()) / 2 + 1
         } else {
             1
         };
-        compositor.draw_string(label_col, start_row + 2, label, text_fg, text_bg);
+        let label_fg = if is_active { Color::LightCyan } else { Color::White };
+        compositor.draw_string(label_col, start_row + 2, label, label_fg, Color::Black);
     }
 
     // Row 24: Navigation hints

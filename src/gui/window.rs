@@ -3,7 +3,7 @@
 //! Provides window borders, title bars, action buttons, and clipping bounds.
 
 use crate::console::vga::Color;
-use crate::gui::compositor::Compositor;
+use crate::gui::compositor::{glyphs, Compositor};
 
 /// Represents a desktop window with position, size, and styling.
 #[derive(Debug, Clone)]
@@ -70,39 +70,55 @@ impl Window {
 
     /// Draws the outer frame, title bar, and window buttons.
     pub fn draw_frame(&self, compositor: &mut Compositor, is_active: bool) {
-        let border_fg = if is_active { Color::Cyan } else { Color::LightGray };
-        let title_fg = if is_active { Color::LightCyan } else { Color::White };
-        let bg = Color::Black;
+        let border_fg = if is_active { Color::Cyan } else { Color::DarkGray };
+        let title_bg = if is_active { Color::Blue } else { Color::DarkGray }; // Color::Blue is #7952A8 Purple
+        let title_fg = Color::Pink; // #FFFFFF Pure White
+        let win_bg = Color::Black;  // #E9DFFF Light Lavender
 
-        // Draw double outer box
-        compositor.draw_box(
-            self.x,
-            self.y,
-            self.width,
-            self.height,
-            true, // double border
-            border_fg,
-            bg,
-        );
+        // 1. Attractive Purple Title Bar across Row 0
+        compositor.fill_rect(self.x, self.y, self.width, 1, b' ', title_fg, title_bg);
 
-        // Title bar header: e.g. " [ Terminal ] "
+        // Window Title
         let title_str = self.title;
-        let title_start = self.x + 3;
-        compositor.put_char(title_start - 1, self.y, b'[', border_fg, bg);
-        compositor.draw_string(title_start, self.y, title_str, title_fg, bg);
-        compositor.put_char(title_start + title_str.len(), self.y, b']', border_fg, bg);
+        let title_max_len = self.width.saturating_sub(14); // leave space for minimize/close buttons
+        let mut title_buf = [0u8; 64];
+        let mut t_len = 0;
+        for b in title_str.bytes() {
+            if t_len >= title_max_len || t_len >= title_buf.len() {
+                break;
+            }
+            title_buf[t_len] = b;
+            t_len += 1;
+        }
+        if let Ok(safe_title) = core::str::from_utf8(&title_buf[..t_len]) {
+            compositor.draw_string(self.x + 2, self.y, safe_title, title_fg, title_bg);
+        }
 
         // Window buttons at top right: "[-] [X]"
         let right_col = self.x + self.width - 1;
         if right_col >= 8 {
-            let close_col = right_col - 4;
-            let min_col = right_col - 8;
+            let close_col = right_col - 3; // 3 chars for [X]
+            let min_col = right_col - 7;   // 3 chars for [-]
 
-            // Minimize [-]
-            compositor.draw_string(min_col, self.y, "[-]", Color::Yellow, bg);
+            // Minimize [-] (Soft Rose #9B3356 on Purple)
+            compositor.draw_string(min_col, self.y, "[-]", Color::Yellow, title_bg);
 
-            // Close [X]
-            compositor.draw_string(close_col, self.y, "[X]", Color::LightRed, bg);
+            // Close [X] (Readable Dark Red #8A1C14 on Purple)
+            compositor.draw_string(close_col, self.y, "[X]", Color::LightRed, title_bg);
         }
+
+        // 2. Left and Right Vertical Double Borders on Rows 1..23
+        for row in (self.y + 1)..(self.y + self.height - 1) {
+            compositor.put_char(self.x, row, glyphs::DBL_VERTICAL, border_fg, win_bg);
+            compositor.put_char(self.x + self.width - 1, row, glyphs::DBL_VERTICAL, border_fg, win_bg);
+        }
+
+        // 3. Bottom Double Border on Row 24
+        let bottom_row = self.y + self.height - 1;
+        compositor.put_char(self.x, bottom_row, glyphs::DBL_BOTTOM_LEFT, border_fg, win_bg);
+        for col in (self.x + 1)..(self.x + self.width - 1) {
+            compositor.put_char(col, bottom_row, glyphs::DBL_HORIZONTAL, border_fg, win_bg);
+        }
+        compositor.put_char(self.x + self.width - 1, bottom_row, glyphs::DBL_BOTTOM_RIGHT, border_fg, win_bg);
     }
 }

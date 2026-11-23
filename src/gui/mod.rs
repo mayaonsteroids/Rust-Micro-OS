@@ -56,7 +56,7 @@ impl Desktop {
         dock::draw_dock(&mut comp, self.active_app);
 
         // 2. Draw Active Window Frame
-        let window = Window::standard(self.active_app.title());
+        let window = Window::standard(self.active_app.window_title());
         window.draw_frame(&mut comp, true);
 
         // 3. Render Active Application Content
