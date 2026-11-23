@@ -76,6 +76,7 @@ pub fn try_read_byte() -> Option<u8> {
                         }
                         DecodedKey::RawKey(KeyCode::Backspace) => return Some(b'\x08'),
                         DecodedKey::RawKey(KeyCode::Return) => return Some(b'\n'),
+                        DecodedKey::RawKey(KeyCode::Escape) => return Some(b'\x1b'),
                         _ => {}
                     }
                 }

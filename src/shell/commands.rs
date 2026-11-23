@@ -50,6 +50,7 @@ pub fn dispatch_command(input: &str) {
         "pci" => cmd_pci(),
         "net" => cmd_net(args),
         "http" => cmd_http(args),
+        "browser" => cmd_browser(args),
         "list" => cmd_list(),
         "tasks" => cmd_tasks(),
         "mem" => cmd_mem(),
@@ -76,6 +77,7 @@ fn cmd_help() {
     kprintln!("  pci           - Enumerate and display PCI bus devices and BARs");
     kprintln!("  net [cmd]     - Network stack: info, arp, dhcp, dns, ping, udp, tcp, test");
     kprintln!("  http get <h>  - Fetch web content via HTTP/1.1 (e.g. 'http get example.com /')");
+    kprintln!("  browser [url] - Launch single-tab text web browser");
     kprintln!("  list          - List available Ring 3 user programs");
     kprintln!("  tasks         - Display active and registered kernel tasks and processes");
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
@@ -976,4 +978,14 @@ fn cmd_http(args: &str) {
             vga::set_color(Color::White, Color::Black);
         }
     }
+}
+
+/// Handler for `browser`: Launches single-tab text-mode web browser.
+fn cmd_browser(args: &str) {
+    let initial_url = if args.is_empty() {
+        None
+    } else {
+        Some(args.trim())
+    };
+    crate::browser::run_browser(initial_url);
 }
