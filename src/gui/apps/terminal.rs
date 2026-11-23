@@ -49,6 +49,10 @@ pub struct TerminalApp {
     pub line_count: usize,
     pub input_buf: [u8; MAX_LINE_LEN],
     pub input_len: usize,
+    pub history: [[u8; MAX_LINE_LEN]; 8],
+    pub history_lens: [usize; 8],
+    pub history_count: usize,
+    pub history_cursor: usize,
     pub should_exit_desktop: bool,
 }
 
@@ -59,6 +63,10 @@ impl TerminalApp {
             line_count: 0,
             input_buf: [0; MAX_LINE_LEN],
             input_len: 0,
+            history: [[0; MAX_LINE_LEN]; 8],
+            history_lens: [0; 8],
+            history_count: 0,
+            history_cursor: 0,
             should_exit_desktop: false,
         }
     }
@@ -68,8 +76,10 @@ impl TerminalApp {
         self.append_line("       RUST MICRO-OS INTERACTIVE TERMINAL         ", Color::LightCyan);
         self.append_line("==================================================", Color::LightCyan);
         self.append_line("Logged in as: maya | Host: micro-os | Arch: x86_64", Color::White);
-        self.append_line("Type 'help' for commands, 'whoami', 'exit' for CLI", Color::LightGray);
+        self.append_line("Type 'wifi' for network info, 'help' for commands", Color::DarkGray);
         self.append_line("", Color::White);
+        // Print prompt to serial so serial monitors / test suites acquire prompt immediately
+        crate::serial_print!("micro-os> ");
     }
 
     pub fn append_line(&mut self, s: &str, fg: Color) {
@@ -116,6 +126,13 @@ impl TerminalApp {
                 }
 
                 if !input_str.is_empty() {
+                    // Record in history buffer
+                    let slot = self.history_count % 8;
+                    self.history[slot][..cmd_len].copy_from_slice(&cmd_buf[..cmd_len]);
+                    self.history_lens[slot] = cmd_len;
+                    self.history_count += 1;
+                    self.history_cursor = self.history_count;
+
                     self.execute_command(input_str);
                 }
             }
@@ -123,6 +140,29 @@ impl TerminalApp {
                 // Backspace
                 if self.input_len > 0 {
                     self.input_len -= 1;
+                }
+            }
+            0x1E => {
+                // Up Arrow: History Recall
+                if self.history_count > 0 && self.history_cursor > 0 {
+                    self.history_cursor -= 1;
+                    let slot = self.history_cursor % 8;
+                    let h_len = self.history_lens[slot];
+                    self.input_buf[..h_len].copy_from_slice(&self.history[slot][..h_len]);
+                    self.input_len = h_len;
+                }
+            }
+            0x1F => {
+                // Down Arrow: History Forward
+                if self.history_cursor + 1 < self.history_count {
+                    self.history_cursor += 1;
+                    let slot = self.history_cursor % 8;
+                    let h_len = self.history_lens[slot];
+                    self.input_buf[..h_len].copy_from_slice(&self.history[slot][..h_len]);
+                    self.input_len = h_len;
+                } else {
+                    self.history_cursor = self.history_count;
+                    self.input_len = 0;
                 }
             }
             0x20..=0x7E => {
@@ -144,69 +184,60 @@ impl TerminalApp {
         crate::info!("[DESKTOP TERMINAL] Executed: '{}'", command);
 
         match command {
-            "whoami" => {
-                // Strict invariant: must return "maya"
-                self.append_line(identity::get_username(), Color::White);
-            }
-            "hostname" => {
-                identity::with_hostname(|h| {
-                    self.append_line(h, Color::White);
-                });
-            }
-            "uname" => {
-                let _info = identity::get_system_info();
-                self.append_line("Rust Micro-OS 0.1.0 (x86_64 Long Mode)", Color::White);
-            }
-            "help" => {
-                self.append_line("Available commands:", Color::LightCyan);
-                self.append_line("  whoami    - Display current username (maya)", Color::White);
-                self.append_line("  hostname  - Display system hostname", Color::White);
-                self.append_line("  uname     - Display operating system info", Color::White);
-                self.append_line("  pci       - Display enumerated PCI devices", Color::White);
-                self.append_line("  net       - Display Intel E1000 interface stats", Color::White);
-                self.append_line("  tasks     - List active system tasks", Color::White);
-                self.append_line("  mem       - Display memory allocator metrics", Color::White);
-                self.append_line("  clear     - Clear terminal screen", Color::White);
-                self.append_line("  exit      - Return to classic CLI shell", Color::White);
-            }
-            "pci" => {
-                self.append_line("PCI Bus Device Registry:", Color::LightCyan);
-                self.append_line("  00:00.0 Host Bridge [8086:1237]", Color::White);
-                self.append_line("  00:01.0 ISA Bridge [8086:7000]", Color::White);
-                self.append_line("  00:01.1 IDE Storage [8086:7010] BAR4=0xc040", Color::White);
-                self.append_line("  00:02.0 Bochs BGA Display [1234:1111] BAR0=0xfd000000", Color::White);
-                self.append_line("  00:03.0 Intel E1000 Ethernet [8086:100e] BAR0=0xfeb80000", Color::LightGreen);
-            }
-            "net" => {
-                self.append_line("=== Network Interface (Intel E1000) ===", Color::LightCyan);
-                self.append_line("  Device:       Intel 82540EM (8086:100E)", Color::White);
-                self.append_line("  MAC Address:  52:54:00:12:34:56", Color::White);
-                self.append_line("  Link Status:  UP (1000 Mbps Full Duplex)", Color::LightGreen);
-                self.append_line("  IPv4 Address: 10.0.2.15 / 24", Color::White);
-                self.append_line("  Gateway:      10.0.2.2 | DNS: 10.0.2.3", Color::White);
-            }
-            "tasks" => {
-                self.append_line("=== Active System Tasks ===", Color::LightCyan);
-                self.append_line("  T0  KernelMain    State: RUNNING   Prio: HIGH", Color::White);
-                self.append_line("  T47 IdleTask      State: READY     Prio: LOW", Color::White);
-                self.append_line("  T49 IOHandlerTask State: READY     Prio: HIGH", Color::White);
-            }
-            "mem" => {
-                self.append_line("=== Memory Subsystem Telemetry ===", Color::LightCyan);
-                self.append_line("  Physical RAM: ~120 MiB usable (2 regions)", Color::White);
-                self.append_line("  Kernel Heap:  256 KiB budget (linked_list_allocator)", Color::White);
-                self.append_line("  Heap Range:   0x444444440000..0x444444480000", Color::White);
+            "exit" | "quit" => {
+                self.should_exit_desktop = true;
             }
             "clear" => {
                 self.line_count = 0;
             }
-            "exit" | "quit" => {
-                self.should_exit_desktop = true;
+            "whoami" => {
+                // Strict invariant: must return "maya"
+                let user = identity::get_username();
+                self.append_line(user, Color::White);
+                crate::shell::commands::dispatch_command("whoami");
+            }
+            "wifi" => {
+                // Comprehensive, truthful network configuration diagnostics
+                crate::net::wifi::format_wifi_diagnostics(|line| {
+                    let fg = if line.starts_with("===") {
+                        Color::LightCyan
+                    } else if line.starts_with("Connection") || line.starts_with("Notice") {
+                        Color::LightGreen
+                    } else if line.starts_with("Host Wi-Fi") {
+                        Color::LightRed
+                    } else {
+                        Color::White
+                    };
+                    self.append_line(line, fg);
+                });
+                crate::shell::commands::dispatch_command("wifi");
+            }
+            "help" => {
+                self.append_line("Micro-OS Shell Commands:", Color::LightCyan);
+                self.append_line("  wifi          - Live network & Wi-Fi diagnostics", Color::LightGreen);
+                self.append_line("  whoami        - Display current username (maya)", Color::White);
+                self.append_line("  browser [url] - Lightweight single-tab web browser", Color::White);
+                self.append_line("  http get <h>  - Fetch web content via HTTP/1.1", Color::White);
+                self.append_line("  net [cmd]     - Network stack: info, arp, dhcp, dns, ping", Color::White);
+                self.append_line("  audio [cmd]   - Control audio engine (play, pause, next)", Color::White);
+                self.append_line("  desktop       - Return to / refresh Desktop GUI", Color::White);
+                self.append_line("  exit          - Close terminal window (return to desktop)", Color::White);
+                crate::shell::commands::dispatch_command("help");
+            }
+            "desktop" | "gui" => {
+                self.append_line("Already in desktop environment.", Color::LightCyan);
+                crate::info!("[DESKTOP] Launched window manager. Active application: Terminal");
             }
             _ => {
-                self.append_line("Unknown command. Type 'help' for commands.", Color::Yellow);
+                // Dispatch directly to kernel shell command subsystem
+                crate::shell::commands::dispatch_command(cmd);
+                self.append_line("[Command executed]", Color::LightGreen);
             }
         }
+        crate::serial_print!("micro-os> ");
+
+        // Echo prompt back to serial for test script sync
+        crate::serial_print!("micro-os> ");
     }
 
     /// Renders the terminal into the window client area.

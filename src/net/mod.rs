@@ -14,6 +14,7 @@ pub mod dhcp;
 pub mod dns;
 pub mod tcp;
 pub mod http;
+pub mod wifi;
 
 pub use e1000::{E1000Device, E1000_DEVICE};
 pub use ethernet::{EthernetHeader, MacAddress, BROADCAST_MAC, ETHERTYPE_ARP, ETHERTYPE_IPV4};

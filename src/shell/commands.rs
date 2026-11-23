@@ -59,6 +59,7 @@ pub fn dispatch_command(input: &str) {
         "mem" => cmd_mem(),
         "trace" => cmd_trace(),
         "run" => cmd_run(args),
+        "wifi" => cmd_wifi(),
         "desktop" | "gui" => cmd_desktop(),
         "audio" | "music" => cmd_audio(args),
         _ => {
@@ -88,8 +89,29 @@ fn cmd_help() {
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
     kprintln!("  trace         - Dump diagnostics circular trace buffer");
     kprintln!("  run <program> - Execute a user program in isolated Ring 3 (hello, counter, calc)");
+    kprintln!("  wifi          - Display network configuration & Wi-Fi diagnostics");
     kprintln!("  desktop       - Launch Light Lavender windowed desktop GUI (or 'gui')");
     kprintln!("  audio [cmd]   - Control audio engine (play, pause, stop, next, prev, status)");
+}
+
+/// Handler for `wifi`: Displays live network configuration and Wi-Fi bridge diagnostics.
+fn cmd_wifi() {
+    crate::net::wifi::format_wifi_diagnostics(|line| {
+        if line.starts_with("===") {
+            vga::set_color(Color::LightCyan, Color::Black);
+            kprintln!("{}", line);
+        } else if line.starts_with("Connection Status") || line.starts_with("Notice") {
+            vga::set_color(Color::LightGreen, Color::Black);
+            kprintln!("{}", line);
+        } else if line.starts_with("Host Wi-Fi") {
+            vga::set_color(Color::LightRed, Color::Black);
+            kprintln!("{}", line);
+        } else {
+            vga::set_color(Color::White, Color::Black);
+            kprintln!("{}", line);
+        }
+    });
+    vga::set_color(Color::White, Color::Black);
 }
 
 /// Handler for `clear`: Clears the VGA text screen and serial console.

@@ -4,7 +4,7 @@
 //! across both VGA display and 16550 serial output.
 
 use core::fmt;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use crate::console::vga::{self, Color};
 use crate::{serial_println, vga_print, vga_println};
 
@@ -44,6 +44,21 @@ impl LogLevel {
 /// Any message below this level is filtered out.
 static MIN_LOG_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Debug as u8);
 
+/// Flag controlling whether diagnostic log messages are printed to the VGA display.
+/// Defaults to false so the user interface remains clean, while serial logging
+/// preserves all diagnostic messages.
+static VGA_LOGGING_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Enables or disables VGA screen output for diagnostic logging.
+pub fn enable_vga_logging(enable: bool) {
+    VGA_LOGGING_ENABLED.store(enable, Ordering::SeqCst);
+}
+
+/// Checks whether VGA screen output is currently enabled for diagnostic logging.
+pub fn is_vga_logging_enabled() -> bool {
+    VGA_LOGGING_ENABLED.load(Ordering::SeqCst)
+}
+
 /// Sets the minimum logging severity threshold.
 pub fn set_min_level(level: LogLevel) {
     MIN_LOG_LEVEL.store(level as u8, Ordering::Relaxed);
@@ -70,14 +85,16 @@ pub fn _log(level: LogLevel, args: fmt::Arguments) {
 
     // Output to both VGA and Serial with interrupt safety
     interrupts::without_interrupts(|| {
-        // 1. Output to VGA screen with level-specific color
-        vga::set_color(level.color(), Color::Black);
-        vga_print!("[{}] ", level.as_str());
-        vga::set_color(Color::White, Color::Black);
-        vga_println!("{}", args);
-
-        // 2. Output to Serial terminal
+        // 1. Output to Serial terminal (always preserved for diagnostics and test suites)
         serial_println!("[{}] {}", level.as_str(), args);
+
+        // 2. Output to VGA screen only if VGA logging is explicitly enabled
+        if VGA_LOGGING_ENABLED.load(Ordering::Relaxed) {
+            vga::set_color(level.color(), Color::Black);
+            vga_print!("[{}] ", level.as_str());
+            vga::set_color(Color::White, Color::Black);
+            vga_println!("{}", args);
+        }
     });
 }
 

@@ -173,6 +173,12 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
                         DecodedKey::RawKey(KeyCode::Escape) => {
                             KEY_BUFFER.lock().push(b'\x1b');
                         }
+                        DecodedKey::RawKey(KeyCode::ArrowUp) => {
+                            KEY_BUFFER.lock().push(0x1E); // RS - Up Arrow
+                        }
+                        DecodedKey::RawKey(KeyCode::ArrowDown) => {
+                            KEY_BUFFER.lock().push(0x1F); // US - Down Arrow
+                        }
                         DecodedKey::RawKey(KeyCode::Numpad1) => { KEY_BUFFER.lock().push(b'1'); }
                         DecodedKey::RawKey(KeyCode::Numpad2) => { KEY_BUFFER.lock().push(b'2'); }
                         DecodedKey::RawKey(KeyCode::Numpad3) => { KEY_BUFFER.lock().push(b'3'); }

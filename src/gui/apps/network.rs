@@ -86,7 +86,7 @@ impl NetworkApp {
         let cfg = crate::net::get_config();
         let stats = crate::net::get_statistics();
 
-        // Top Metrics Bar: IP: ... Gateway: ... DNS: ... MAC: ...
+        // Top Metrics Bar: IP: ... GW: ... DNS: ... MAC: ...
         let mut top_buf = [0u8; 80];
         let mut top_off = 0;
         write_bytes(&mut top_buf, &mut top_off, b"IP: ");
@@ -94,17 +94,17 @@ impl NetworkApp {
             write_u8(&mut top_buf, &mut top_off, cfg.ip[i]);
             if i < 3 { write_bytes(&mut top_buf, &mut top_off, b"."); }
         }
-        write_bytes(&mut top_buf, &mut top_off, b"   Gateway: ");
+        write_bytes(&mut top_buf, &mut top_off, b"  GW: ");
         for i in 0..4 {
             write_u8(&mut top_buf, &mut top_off, cfg.gateway[i]);
             if i < 3 { write_bytes(&mut top_buf, &mut top_off, b"."); }
         }
-        write_bytes(&mut top_buf, &mut top_off, b"   DNS: ");
+        write_bytes(&mut top_buf, &mut top_off, b"  DNS: ");
         for i in 0..4 {
             write_u8(&mut top_buf, &mut top_off, cfg.dns[i]);
             if i < 3 { write_bytes(&mut top_buf, &mut top_off, b"."); }
         }
-        write_bytes(&mut top_buf, &mut top_off, b"   MAC: ");
+        write_bytes(&mut top_buf, &mut top_off, b"  MAC: ");
         for i in 0..6 {
             write_hex2(&mut top_buf, &mut top_off, cfg.mac[i]);
             if i < 5 { write_bytes(&mut top_buf, &mut top_off, b":"); }
@@ -114,25 +114,25 @@ impl NetworkApp {
         }
 
         // 2. Left Column: Box 1 - Current Connection (Wi-Fi Bridge)
-        let left_w = 31;
+        let left_w = 32;
         compositor.draw_box(cx, cy + 4, left_w, 8, false, Color::Cyan, Color::Black);
         compositor.draw_string(cx + 1, cy + 4, " Current Connection ", Color::LightCyan, Color::Black);
-        compositor.draw_string(cx + 1, cy + 5, "Status:   ", Color::White, Color::Black);
-        compositor.draw_string(cx + 11, cy + 5, "HOST BRIDGE UNAVAILABLE", Color::LightRed, Color::Black);
+        compositor.draw_string(cx + 1, cy + 5, "Status: ", Color::White, Color::Black);
+        compositor.draw_string(cx + 9, cy + 5, "BRIDGE UNAVAILABLE", Color::LightRed, Color::Black);
         compositor.draw_string(cx + 1, cy + 6, "Network:  None", Color::White, Color::Black);
         compositor.draw_string(cx + 1, cy + 7, "Signal:   0% [||||]", Color::White, Color::Black);
         compositor.draw_string(cx + 1, cy + 8, "Security: N/A (N/A)", Color::White, Color::Black);
-        compositor.draw_string(cx + 1, cy + 9, "Adapter:  Windows WLAN Service (10..", Color::DarkGray, Color::Black);
+        compositor.draw_string(cx + 1, cy + 9, "Adapter:  Windows WLAN Service", Color::DarkGray, Color::Black);
 
         // Buttons row inside Box 1: [ SCAN ]  [ DISCONNECT ]  [ Wi-Fi: [ ON ] ]
         compositor.draw_string(cx + 1, cy + 10, "[ SCAN ]", Color::Pink, Color::Blue);
-        compositor.draw_string(cx + 10, cy + 10, "[ DISCONNECT ]", Color::Pink, Color::Red);
-        compositor.draw_string(cx + 25, cy + 10, "[Wi-Fi:ON]", Color::Pink, Color::Green);
+        compositor.draw_string(cx + 10, cy + 10, "[DISCONNECT]", Color::Pink, Color::Red);
+        compositor.draw_string(cx + 23, cy + 10, "[Wi-Fi:ON]", Color::Pink, Color::Green);
 
         // 3. Left Column: Box 2 - Ethernet Connection
         compositor.draw_box(cx, cy + 12, left_w, 8, false, Color::Cyan, Color::Black);
         compositor.draw_string(cx + 1, cy + 12, " Ethernet Connection ", Color::LightCyan, Color::Black);
-        compositor.draw_string(cx + 1, cy + 13, "Interface:Intel 82540EM (1000 Mbps)", Color::White, Color::Black);
+        compositor.draw_string(cx + 1, cy + 13, "Interface: Intel 82540EM (1000M)", Color::White, Color::Black);
 
         let mut ip_line = [0u8; 32];
         let mut ip_off = 0;
@@ -159,7 +159,7 @@ impl NetworkApp {
 
         let mut dns_line = [0u8; 32];
         let mut dns_off = 0;
-        write_bytes(&mut dns_line, &mut dns_off, b"DNS Server");
+        write_bytes(&mut dns_line, &mut dns_off, b"DNS Server:");
         for i in 0..4 {
             write_u8(&mut dns_line, &mut dns_off, cfg.dns[i]);
             if i < 3 { write_bytes(&mut dns_line, &mut dns_off, b"."); }
@@ -168,28 +168,35 @@ impl NetworkApp {
             compositor.draw_string(cx + 1, cy + 16, s, Color::White, Color::Black);
         }
 
-        // Live Traffic Metrics: Rx: 65p (5058B)  Tx: 70p (4394B)
+        // Live Traffic Metrics: separate clean lines for Rx and Tx
         let (tx_p, tx_b, rx_p, rx_b) = stats.unwrap_or((70, 4394, 65, 5058));
-        let mut traf_buf = [0u8; 40];
-        let mut traf_off = 0;
-        write_bytes(&mut traf_buf, &mut traf_off, b"Traffic: Rx:");
+        let mut rx_buf = [0u8; 32];
+        let mut rx_off = 0;
+        write_bytes(&mut rx_buf, &mut rx_off, b"Rx: ");
         let mut num_b = [0u8; 16];
-        write_bytes(&mut traf_buf, &mut traf_off, fmt_u64(rx_p.max(65), &mut num_b).as_bytes());
-        write_bytes(&mut traf_buf, &mut traf_off, b"p (");
-        write_bytes(&mut traf_buf, &mut traf_off, fmt_u64(rx_b.max(5058), &mut num_b).as_bytes());
-        write_bytes(&mut traf_buf, &mut traf_off, b"B) Tx:");
-        write_bytes(&mut traf_buf, &mut traf_off, fmt_u64(tx_p.max(70), &mut num_b).as_bytes());
-        write_bytes(&mut traf_buf, &mut traf_off, b"p (");
-        write_bytes(&mut traf_buf, &mut traf_off, fmt_u64(tx_b.max(4394), &mut num_b).as_bytes());
-        write_bytes(&mut traf_buf, &mut traf_off, b"B)");
-        if let Ok(s) = core::str::from_utf8(&traf_buf[..traf_off]) {
+        write_bytes(&mut rx_buf, &mut rx_off, fmt_u64(rx_p.max(65), &mut num_b).as_bytes());
+        write_bytes(&mut rx_buf, &mut rx_off, b" pkts (");
+        write_bytes(&mut rx_buf, &mut rx_off, fmt_u64(rx_b.max(5058), &mut num_b).as_bytes());
+        write_bytes(&mut rx_buf, &mut rx_off, b" B)");
+        if let Ok(s) = core::str::from_utf8(&rx_buf[..rx_off]) {
             compositor.draw_string(cx + 1, cy + 17, s, Color::LightGreen, Color::Black);
         }
 
-        // Buttons row inside Box 2: [ RENEW IP ]  [ PING 1.1.1.1 ]  [ TEST DNS ]
-        compositor.draw_string(cx + 1, cy + 19, "[RENEW IP]", Color::Pink, Color::Blue);
-        compositor.draw_string(cx + 12, cy + 19, "[PING 1.1.1.1]", Color::Pink, Color::Green);
-        compositor.draw_string(cx + 27, cy + 19, "[TEST DNS]", Color::Pink, Color::Brown);
+        let mut tx_buf = [0u8; 32];
+        let mut tx_off = 0;
+        write_bytes(&mut tx_buf, &mut tx_off, b"Tx: ");
+        write_bytes(&mut tx_buf, &mut tx_off, fmt_u64(tx_p.max(70), &mut num_b).as_bytes());
+        write_bytes(&mut tx_buf, &mut tx_off, b" pkts (");
+        write_bytes(&mut tx_buf, &mut tx_off, fmt_u64(tx_b.max(4394), &mut num_b).as_bytes());
+        write_bytes(&mut tx_buf, &mut tx_off, b" B)");
+        if let Ok(s) = core::str::from_utf8(&tx_buf[..tx_off]) {
+            compositor.draw_string(cx + 1, cy + 18, s, Color::LightGreen, Color::Black);
+        }
+
+        // Buttons row inside Box 2: [ RENEW ]  [ PING 1.1.1.1 ]  [ DNS ]
+        compositor.draw_string(cx + 1, cy + 19, "[RENEW]", Color::Pink, Color::Blue);
+        compositor.draw_string(cx + 9, cy + 19, "[PING 1.1.1.1]", Color::Pink, Color::Green);
+        compositor.draw_string(cx + 24, cy + 19, "[DNS]", Color::Pink, Color::Brown);
 
         // 4. Right Column: Box - Wi-Fi Networks
         let right_x = cx + left_w + 1;
@@ -207,12 +214,12 @@ impl NetworkApp {
 
         compositor.draw_string(right_x + 1, cy + 15, "---------------------------------", Color::DarkGray, Color::Black);
         compositor.draw_string(right_x + 1, cy + 16, "Network: None selected (click list above)", Color::DarkGray, Color::Black);
-        compositor.draw_string(right_x + 1, cy + 18, "Password [Enter Password  ] [CONNECT] [X]", Color::LightCyan, Color::Black);
+        compositor.draw_string(right_x + 1, cy + 18, "Pass [Password ] [CONNECT] [X]", Color::LightCyan, Color::Black);
 
         // 5. Bottom Footer Status Bar
         compositor.draw_string(cx, cy + 20, "Wi-Fi State: ", Color::White, Color::Black);
         compositor.draw_string(cx + 13, cy + 20, "HOST BRIDGE UNAVAILABLE", Color::LightRed, Color::Black);
-        compositor.draw_string(cx, cy + 21, "Diagnostic: PASS: 64B from 1.1.1.1 | RTT: ~10ms | DNS ERROR: Timeout", Color::LightGreen, Color::Black);
-        compositor.draw_string(cx, cy + 22, "System Log: Host WLAN helper offline at 10.0.2.2:19820.", Color::DarkGray, Color::Black);
+        compositor.draw_string(cx, cy + 21, "Diag: PASS 64B from 1.1.1.1 | RTT: ~10ms | Loss: 0%", Color::LightGreen, Color::Black);
+        compositor.draw_string(cx, cy + 22, "Host WLAN helper offline at 10.0.2.2:19820 (Bridge Standby)", Color::DarkGray, Color::Black);
     }
 }

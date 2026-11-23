@@ -6,21 +6,21 @@ extern crate alloc;
 use bootloader::{entry_point, BootInfo};
 use core::panic::PanicInfo;
 use rust_micro_os::console::logger::{self, LogLevel};
-use rust_micro_os::console::vga::{self, Color};
-use rust_micro_os::{debug, error, info, kprintln, warn};
+use rust_micro_os::{debug, error, info, warn};
 
 entry_point!(kernel_main);
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // 1. Initialize hardware drivers
     rust_micro_os::console::serial::init();
-    vga::init();
 
-    // 2. Display OS banner
-    vga::set_color(Color::LightCyan, Color::Black);
-    kprintln!("========================================================");
-    kprintln!("               RUST MICRO-OS KERNEL v0.1.0             ");
-    kprintln!("========================================================");
+    // 2. Display minimal Light Lavender boot splash on visible VGA display
+    rust_micro_os::gui::show_boot_splash("Starting Desktop...");
+
+    // Diagnostic OS banner emitted directly to COM1 serial
+    rust_micro_os::serial_println!("========================================================");
+    rust_micro_os::serial_println!("               RUST MICRO-OS KERNEL v0.1.0             ");
+    rust_micro_os::serial_println!("========================================================");
 
     // 3. Structured Logging Demonstrations across all 4 levels
     info!("Kernel successfully started in 64-bit Long Mode.");
@@ -438,8 +438,12 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     rust_micro_os::console::input::init();
     let _ = rust_micro_os::console::input::tests::run_keyboard_unit_tests();
 
-    info!("--- Milestone 16: Launching Interactive Command Shell ---");
+    info!("--- Milestone 16: Launching Desktop Home Screen ---");
 
+    // Priority 1: Automatically launch desktop after kernel initialization
+    rust_micro_os::gui::run_desktop();
+
+    // Fallback if desktop ever exits
     rust_micro_os::shell::run_shell();
 }
 
