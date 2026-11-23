@@ -311,6 +311,7 @@ pub fn read_byte() -> u8 {
         if let Some(b) = try_read_byte() {
             return b;
         }
+        crate::audio::tick();
         core::hint::spin_loop();
     }
 }

@@ -92,6 +92,9 @@ pub static TRACK_3_NOTES: [Note; 26] = [
     Note::tone(B3, 25), Note::tone(E4, 55), Note::rest(20), Note::tone(E5, 45),
 ];
 
+/// Embedded compact 24 kHz Stereo IMA ADPCM payload for "Mayiiiii" by Maya Rust (150s duration).
+pub static MAYIIIII_ADPCM: &[u8] = include_bytes!("mayiiiii_adpcm.bin");
+
 /// Metadata and note stream for a musical track.
 #[derive(Debug, Clone, Copy)]
 pub struct Track {
@@ -121,6 +124,9 @@ impl Track {
 
     /// Computes the total duration of the track in timer ticks.
     pub fn total_ticks(&self) -> u32 {
+        if self.notes.is_empty() {
+            return self.duration_seconds as u32 * 100;
+        }
         let mut sum = 0u32;
         for n in self.notes {
             sum += n.duration_ticks as u32;
@@ -129,7 +135,14 @@ impl Track {
     }
 }
 
-pub static PLAYLIST: [Track; 3] = [
+pub static PLAYLIST: [Track; 4] = [
+    Track::new(
+        "Mayiiiii",
+        "Maya Rust",
+        "Micro-OS Sessions",
+        150,
+        &[], // Streamed from MAYIIIII_ADPCM via AC97 DMA
+    ),
     Track::new(
         "Lavender Horizon",
         "Maya Rust",

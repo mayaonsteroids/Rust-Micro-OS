@@ -1,7 +1,7 @@
 //! Unified Audio Subsystem for Rust Micro-OS.
 //!
 //! Provides two-tier audio architecture:
-//! - Tier 1: Intel ICH AC97 PCI DMA streaming (VirtualBox / QEMU).
+//! - Tier 1: Intel ICH AC97 PCI DMA streaming with 32-descriptor ring and real-time ADPCM decoding (VirtualBox / QEMU).
 //! - Tier 2: Programmable PC Speaker tone generator fallback (Universal).
 
 pub mod ac97;
@@ -10,7 +10,7 @@ pub mod speaker;
 
 use spin::Mutex;
 use crate::audio::ac97::Ac97Device;
-use crate::audio::melody::{Track, PLAYLIST};
+use crate::audio::melody::{Track, MAYIIIII_ADPCM, PLAYLIST};
 use crate::info;
 
 /// Playback state machine.
@@ -69,26 +69,43 @@ impl AudioEngine {
         &PLAYLIST[self.current_track_idx % PLAYLIST.len()]
     }
 
+    /// Returns true if the currently active track is the streamed audio song.
+    pub fn is_streaming_track(&self) -> bool {
+        self.current_track().notes.is_empty()
+    }
+
     /// Starts or resumes audio playback.
     pub fn play(&mut self) {
         let track = self.current_track();
+        let is_stream = track.notes.is_empty();
 
         match self.state {
             PlaybackState::Playing => return,
             PlaybackState::Paused => {
                 // Resume from paused position
                 self.state = PlaybackState::Playing;
-                let cur_freq = if self.note_idx < track.notes.len() {
-                    track.notes[self.note_idx].freq_hz
+
+                if is_stream {
+                    if let Some(ref mut dev) = self.ac97 {
+                        dev.start_song(MAYIIIII_ADPCM, self.volume, true);
+                    }
+                    speaker::silence();
+                    info!("[AUDIO] Resumed playback: '{}' (streaming offset: {} bytes)",
+                        track.title,
+                        self.ac97.as_ref().map(|d| d.song_offset).unwrap_or(0));
                 } else {
-                    0
-                };
-                if let Some(ref mut dev) = self.ac97 {
-                    dev.start(cur_freq, self.volume);
+                    let cur_freq = if self.note_idx < track.notes.len() {
+                        track.notes[self.note_idx].freq_hz
+                    } else {
+                        0
+                    };
+                    if let Some(ref mut dev) = self.ac97 {
+                        dev.start(cur_freq, self.volume);
+                    }
+                    speaker::play_tone(cur_freq);
+                    info!("[AUDIO] Resumed playback: '{}' at note {} (elapsed: {} ticks)",
+                        track.title, self.note_idx, self.elapsed_ticks);
                 }
-                speaker::play_tone(cur_freq);
-                info!("[AUDIO] Resumed playback: '{}' at note {} (elapsed: {} ticks)",
-                    track.title, self.note_idx, self.elapsed_ticks);
             }
             PlaybackState::Stopped => {
                 // Start from beginning
@@ -97,13 +114,22 @@ impl AudioEngine {
                 self.ticks_in_note = 0;
                 self.elapsed_ticks = 0;
 
-                let cur_freq = track.notes.first().map(|n| n.freq_hz).unwrap_or(0);
-                if let Some(ref mut dev) = self.ac97 {
-                    dev.start(cur_freq, self.volume);
+                if is_stream {
+                    if let Some(ref mut dev) = self.ac97 {
+                        dev.start_song(MAYIIIII_ADPCM, self.volume, false);
+                    }
+                    speaker::silence();
+                    info!("[AUDIO] Started playback: '{}' by {} (Streamed DMA, {}s)",
+                        track.title, track.artist, track.duration_seconds);
+                } else {
+                    let cur_freq = track.notes.first().map(|n| n.freq_hz).unwrap_or(0);
+                    if let Some(ref mut dev) = self.ac97 {
+                        dev.start(cur_freq, self.volume);
+                    }
+                    speaker::play_tone(cur_freq);
+                    info!("[AUDIO] Started playback: '{}' by {} ({} notes, {}s)",
+                        track.title, track.artist, track.notes.len(), track.duration_seconds);
                 }
-                speaker::play_tone(cur_freq);
-                info!("[AUDIO] Started playback: '{}' by {} ({} notes, {}s)",
-                    track.title, track.artist, track.notes.len(), track.duration_seconds);
             }
         }
     }
@@ -116,8 +142,7 @@ impl AudioEngine {
                 dev.pause();
             }
             speaker::silence();
-            info!("[AUDIO] Paused playback: '{}' at note {}",
-                self.current_track().title, self.note_idx);
+            info!("[AUDIO] Paused playback: '{}'", self.current_track().title);
         }
     }
 
@@ -125,7 +150,7 @@ impl AudioEngine {
     pub fn stop(&mut self) {
         self.state = PlaybackState::Stopped;
         if let Some(ref mut dev) = self.ac97 {
-            dev.pause();
+            dev.stop();
         }
         speaker::silence();
         self.note_idx = 0;
@@ -142,16 +167,16 @@ impl AudioEngine {
         self.ticks_in_note = 0;
         self.elapsed_ticks = 0;
 
+        if let Some(ref mut dev) = self.ac97 {
+            dev.stop();
+        }
+        speaker::silence();
+
         info!("[AUDIO] Switched to next track: '{}'", self.current_track().title);
 
         if was_playing {
             self.state = PlaybackState::Stopped;
             self.play();
-        } else {
-            speaker::silence();
-            if let Some(ref mut dev) = self.ac97 {
-                dev.pause();
-            }
         }
     }
 
@@ -167,16 +192,16 @@ impl AudioEngine {
         self.ticks_in_note = 0;
         self.elapsed_ticks = 0;
 
+        if let Some(ref mut dev) = self.ac97 {
+            dev.stop();
+        }
+        speaker::silence();
+
         info!("[AUDIO] Switched to previous track: '{}'", self.current_track().title);
 
         if was_playing {
             self.state = PlaybackState::Stopped;
             self.play();
-        } else {
-            speaker::silence();
-            if let Some(ref mut dev) = self.ac97 {
-                dev.pause();
-            }
         }
     }
 
@@ -204,62 +229,106 @@ impl AudioEngine {
 
         let track = self.current_track();
         self.elapsed_ticks += 1;
-        self.ticks_in_note += 1;
 
-        if self.note_idx < track.notes.len() {
-            let current_note = track.notes[self.note_idx];
-            if self.ticks_in_note >= current_note.duration_ticks {
-                // Advance to next note
-                self.note_idx += 1;
-                self.ticks_in_note = 0;
-
-                if self.note_idx >= track.notes.len() {
-                    // Track finished
+        if track.notes.is_empty() {
+            // Streaming actual song data from embedded ADPCM
+            if let Some(ref mut dev) = self.ac97 {
+                let still_playing = dev.tick_song(MAYIIIII_ADPCM, self.volume, self.is_repeat);
+                if !still_playing {
                     if self.is_repeat {
-                        self.note_idx = 0;
-                        self.elapsed_ticks = 0;
-                        let first_freq = track.notes.first().map(|n| n.freq_hz).unwrap_or(0);
-                        speaker::play_tone(first_freq);
-                        if let Some(ref mut dev) = self.ac97 {
-                            dev.tick(first_freq, self.volume);
-                        }
+                        dev.start_song(MAYIIIII_ADPCM, self.volume, false);
                     } else {
                         self.next_track();
                     }
+                }
+            } else {
+                // AC97 not detected
+                self.stop();
+            }
+        } else {
+            // Chiptune composition: sequence individual notes
+            self.ticks_in_note += 1;
+
+            if self.note_idx < track.notes.len() {
+                let current_note = track.notes[self.note_idx];
+                if self.ticks_in_note >= current_note.duration_ticks {
+                    // Advance to next note
+                    self.note_idx += 1;
+                    self.ticks_in_note = 0;
+
+                    if self.note_idx >= track.notes.len() {
+                        // Track finished
+                        if self.is_repeat {
+                            self.note_idx = 0;
+                            self.elapsed_ticks = 0;
+                            let first_freq = track.notes.first().map(|n| n.freq_hz).unwrap_or(0);
+                            speaker::play_tone(first_freq);
+                            if let Some(ref mut dev) = self.ac97 {
+                                dev.tick(first_freq, self.volume);
+                            }
+                        } else {
+                            self.next_track();
+                        }
+                    } else {
+                        let next_note = track.notes[self.note_idx];
+                        speaker::play_tone(next_note.freq_hz);
+                        if let Some(ref mut dev) = self.ac97 {
+                            dev.tick(next_note.freq_hz, self.volume);
+                        }
+                    }
                 } else {
-                    let next_note = track.notes[self.note_idx];
-                    speaker::play_tone(next_note.freq_hz);
+                    // Continue streaming active note tone into AC97 DMA ring
                     if let Some(ref mut dev) = self.ac97 {
-                        dev.tick(next_note.freq_hz, self.volume);
+                        dev.tick(current_note.freq_hz, self.volume);
                     }
                 }
             } else {
-                // Continue streaming active note tone into AC97 DMA ring
-                if let Some(ref mut dev) = self.ac97 {
-                    dev.tick(current_note.freq_hz, self.volume);
-                }
+                self.stop();
             }
-        } else {
-            self.stop();
         }
     }
 
     /// Returns human-readable driver status string.
     pub fn driver_name(&self) -> &'static str {
         if self.ac97.is_some() {
-            "Intel ICH AC97 (DMA 48kHz) + PC Speaker"
+            "Intel ICH AC97 (DMA 48kHz Stereo)"
         } else {
             "PC Speaker Synthesizer (Universal)"
         }
     }
 
+    /// Returns elapsed playback duration in seconds.
+    pub fn elapsed_seconds(&self) -> u32 {
+        let track = self.current_track();
+        if track.notes.is_empty() {
+            if let Some(ref dev) = self.ac97 {
+                if !MAYIIIII_ADPCM.is_empty() {
+                    return ((dev.song_offset as u64 * track.duration_seconds as u64) / MAYIIIII_ADPCM.len() as u64) as u32;
+                }
+            }
+            0
+        } else {
+            self.elapsed_ticks / 100
+        }
+    }
+
     /// Returns the progress percentage (0..100).
     pub fn progress_percent(&self) -> u8 {
-        let total = self.current_track().total_ticks();
-        if total > 0 {
-            ((self.elapsed_ticks as u64 * 100) / total as u64).min(100) as u8
-        } else {
+        let track = self.current_track();
+        if track.notes.is_empty() {
+            if let Some(ref dev) = self.ac97 {
+                if !MAYIIIII_ADPCM.is_empty() {
+                    return ((dev.song_offset as u64 * 100) / MAYIIIII_ADPCM.len() as u64).min(100) as u8;
+                }
+            }
             0
+        } else {
+            let total = track.total_ticks();
+            if total > 0 {
+                ((self.elapsed_ticks as u64 * 100) / total as u64).min(100) as u8
+            } else {
+                0
+            }
         }
     }
 }

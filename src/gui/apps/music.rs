@@ -79,7 +79,7 @@ impl MusicApp {
         let volume = audio.volume;
         let is_repeat = audio.is_repeat;
         let driver_name = audio.driver_name();
-        let elapsed_sec = audio.elapsed_ticks / 100;
+        let elapsed_sec = audio.elapsed_seconds();
         let total_sec = track.duration_seconds as u32;
 
         // 1. Album Artwork Box (left side)
@@ -93,8 +93,8 @@ impl MusicApp {
         compositor.draw_string(cx + 4, cy + 2, " ~ ALBUM ~ ", Color::LightCyan, Color::Black);
         compositor.put_char(cx + 7, cy + 3, glyphs::MUSIC_NOTE, art_fg, Color::Black);
         compositor.put_char(cx + 9, cy + 3, glyphs::MUSIC_NOTE, art_fg, Color::Black);
-        compositor.draw_string(cx + 4, cy + 4, "  LAVENDER ", Color::LightGray, Color::Black);
-        compositor.draw_string(cx + 4, cy + 5, "   DREAMS  ", Color::LightGray, Color::Black);
+        compositor.draw_string(cx + 4, cy + 4, "  MICRO-OS ", Color::LightGray, Color::Black);
+        compositor.draw_string(cx + 4, cy + 5, "  SESSIONS ", Color::LightGray, Color::Black);
 
         // 2. Track Metadata & Status (right of album art)
         let meta_x = cx + 18;
@@ -181,7 +181,7 @@ impl MusicApp {
 
         // 5. Playlist Box
         compositor.draw_box(cx + 2, cy + 13, 62, 8, false, Color::Cyan, Color::Black);
-        compositor.draw_string(cx + 4, cy + 13, "[ Playlist: Original Chiptune Compositions ]", Color::LightCyan, Color::Black);
+        compositor.draw_string(cx + 4, cy + 13, "[ Playlist: Featured Song & Chiptune Scores ]", Color::LightCyan, Color::Black);
 
         for (i, p_track) in PLAYLIST.iter().enumerate() {
             let row = cy + 15 + i;
