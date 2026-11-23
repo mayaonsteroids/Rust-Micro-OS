@@ -103,49 +103,78 @@ pub fn run_desktop() {
     // Enable CPU interrupts for keyboard and timer delivery
     x86_64::instructions::interrupts::enable();
 
+    let mut last_render_tick = crate::timer::get_ticks();
+
     loop {
-        // Read next keyboard input byte
-        let key = crate::console::read_byte();
+        // 1. Advance audio playback tick
+        crate::audio::tick();
 
-        let mut dt = DESKTOP.lock();
+        // 2. Poll for keyboard input (non-blocking)
+        if let Some(key) = crate::console::try_read_byte() {
+            let mut dt = DESKTOP.lock();
 
-        match key {
-            b'\x1b' => {
-                // Esc: Exit desktop mode
-                crate::info!("[DESKTOP] Exited window manager via Escape key.");
-                break;
-            }
-            b'\t' => {
-                // Tab: Switch to next application
-                dt.active_app = dt.active_app.next();
-                crate::info!("[DESKTOP] Switched active application to: {}", dt.active_app.title());
-            }
-            b'1'..=b'8' => {
-                // Quick-switch via number keys 1..8
-                let target_app = AppId::from_index(key - b'1');
-                if dt.active_app == AppId::Terminal && key >= b'1' && key <= b'8' && dt.terminal.input_len > 0 {
-                    // If user is actively typing a command in Terminal, forward the digit
-                    dt.terminal.handle_key(key);
-                } else {
-                    dt.active_app = target_app;
+            match key {
+                b'\x1b' => {
+                    // Esc: Exit desktop mode
+                    crate::info!("[DESKTOP] Exited window manager via Escape key.");
+                    crate::audio::AUDIO_ENGINE.lock().pause();
+                    break;
+                }
+                b'\t' => {
+                    // Tab: Switch to next application
+                    dt.active_app = dt.active_app.next();
                     crate::info!("[DESKTOP] Switched active application to: {}", dt.active_app.title());
                 }
-            }
-            _ => {
-                // Forward input to active app
-                if dt.active_app == AppId::Terminal {
-                    dt.terminal.handle_key(key);
-                    if dt.terminal.should_exit_desktop {
-                        dt.terminal.should_exit_desktop = false;
-                        crate::info!("[DESKTOP] Exited window manager via Terminal exit command.");
-                        break;
+                b'1'..=b'8' => {
+                    // Quick-switch via number keys 1..8
+                    let target_app = AppId::from_index(key - b'1');
+                    if dt.active_app == AppId::Terminal && key >= b'1' && key <= b'8' && dt.terminal.input_len > 0 {
+                        // If user is actively typing a command in Terminal, forward the digit
+                        dt.terminal.handle_key(key);
+                    } else {
+                        dt.active_app = target_app;
+                        crate::info!("[DESKTOP] Switched active application to: {}", dt.active_app.title());
+                    }
+                }
+                _ => {
+                    // Forward input to active app
+                    match dt.active_app {
+                        AppId::Terminal => {
+                            dt.terminal.handle_key(key);
+                            if dt.terminal.should_exit_desktop {
+                                dt.terminal.should_exit_desktop = false;
+                                crate::info!("[DESKTOP] Exited window manager via Terminal exit command.");
+                                crate::audio::AUDIO_ENGINE.lock().pause();
+                                break;
+                            }
+                        }
+                        AppId::Music => {
+                            dt.music.handle_key(key);
+                        }
+                        _ => {}
                     }
                 }
             }
-        }
 
-        // Re-render desktop
-        dt.render();
+            // Re-render desktop
+            dt.render();
+            last_render_tick = crate::timer::get_ticks();
+        } else {
+            // Check if audio is actively playing: re-render progress bar every 10 ticks (100 ms)
+            let current_tick = crate::timer::get_ticks();
+            let is_audio_playing = crate::audio::AUDIO_ENGINE.lock().state == crate::audio::PlaybackState::Playing;
+
+            if is_audio_playing && current_tick >= last_render_tick + 10 {
+                let mut dt = DESKTOP.lock();
+                if dt.active_app == AppId::Music {
+                    dt.render();
+                }
+                last_render_tick = current_tick;
+            }
+
+            // Sleep CPU until next hardware interrupt (PIT timer tick @ 100 Hz or keyboard IRQ)
+            x86_64::instructions::hlt();
+        }
     }
 
     // Restore standard CLI VGA screen

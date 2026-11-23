@@ -193,6 +193,18 @@ impl PciDevice {
         }
     }
 
+    /// Retrieves BAR at `index` if it is an I/O Port BAR.
+    pub fn get_bar_io(&self, index: usize) -> Option<(u16, usize)> {
+        if index < 6 {
+            match self.bars[index] {
+                Bar::Io { port, size } => Some((port, size)),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+
     /// Returns a human-readable class name string.
     pub fn class_name(&self) -> &'static str {
         match self.class_code {

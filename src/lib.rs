@@ -5,6 +5,7 @@
 extern crate alloc;
 
 // Core subsystem modules for the educational Micro-OS
+pub mod audio;
 pub mod browser;
 pub mod console;
 pub mod gui;

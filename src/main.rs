@@ -432,6 +432,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // Milestone 17.2: PCI Enumeration and Network Controller Initialization
     let _ = rust_micro_os::pci::init();
     let _ = rust_micro_os::net::init();
+    rust_micro_os::audio::init();
 
     // Initialize PS/2 Keyboard Controller for interactive input
     rust_micro_os::console::input::init();

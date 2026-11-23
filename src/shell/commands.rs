@@ -60,6 +60,7 @@ pub fn dispatch_command(input: &str) {
         "trace" => cmd_trace(),
         "run" => cmd_run(args),
         "desktop" | "gui" => cmd_desktop(),
+        "audio" | "music" => cmd_audio(args),
         _ => {
             vga::set_color(Color::Yellow, Color::Black);
             kprintln!("Unknown command: '{}'. Type 'help' for a list of commands.", cmd);
@@ -88,6 +89,7 @@ fn cmd_help() {
     kprintln!("  trace         - Dump diagnostics circular trace buffer");
     kprintln!("  run <program> - Execute a user program in isolated Ring 3 (hello, counter, calc)");
     kprintln!("  desktop       - Launch Light Lavender windowed desktop GUI (or 'gui')");
+    kprintln!("  audio [cmd]   - Control audio engine (play, pause, stop, next, prev, status)");
 }
 
 /// Handler for `clear`: Clears the VGA text screen and serial console.
@@ -999,3 +1001,85 @@ fn cmd_browser(args: &str) {
     };
     crate::browser::run_browser(initial_url);
 }
+
+/// Handler for `audio` / `music`: Controls the audio engine and music playback.
+fn cmd_audio(args: &str) {
+    let subcmd = args.trim();
+    if subcmd.is_empty() || subcmd.eq_ignore_ascii_case("status") {
+        let audio = crate::audio::AUDIO_ENGINE.lock();
+        let track = audio.current_track();
+        let state_str = match audio.state {
+            crate::audio::PlaybackState::Playing => "PLAYING",
+            crate::audio::PlaybackState::Paused => "PAUSED",
+            crate::audio::PlaybackState::Stopped => "STOPPED",
+        };
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("=== Audio Subsystem Status ===");
+        vga::set_color(Color::White, Color::Black);
+        kprintln!("  Driver:   {}", audio.driver_name());
+        kprintln!("  State:    [{}]", state_str);
+        kprintln!("  Track:    {} - {}", track.title, track.artist);
+        kprintln!("  Album:    {}", track.album);
+        kprintln!("  Duration: {}s (Progress: {}%)", track.duration_seconds, audio.progress_percent());
+        kprintln!("  Volume:   {}%", audio.volume);
+        kprintln!("  Repeat:   {}", if audio.is_repeat { "Enabled" } else { "Disabled" });
+        return;
+    }
+
+    if subcmd.eq_ignore_ascii_case("play") {
+        crate::audio::AUDIO_ENGINE.lock().play();
+        vga::set_color(Color::LightGreen, Color::Black);
+        let audio = crate::audio::AUDIO_ENGINE.lock();
+        let track = audio.current_track();
+        kprintln!("[AUDIO] Playing: '{}' by {}", track.title, track.artist);
+        vga::set_color(Color::White, Color::Black);
+    } else if subcmd.eq_ignore_ascii_case("pause") {
+        crate::audio::AUDIO_ENGINE.lock().pause();
+        vga::set_color(Color::Yellow, Color::Black);
+        kprintln!("[AUDIO] Playback paused.");
+        vga::set_color(Color::White, Color::Black);
+    } else if subcmd.eq_ignore_ascii_case("stop") {
+        crate::audio::AUDIO_ENGINE.lock().stop();
+        vga::set_color(Color::LightRed, Color::Black);
+        kprintln!("[AUDIO] Playback stopped.");
+        vga::set_color(Color::White, Color::Black);
+    } else if subcmd.eq_ignore_ascii_case("next") {
+        crate::audio::AUDIO_ENGINE.lock().next_track();
+        let audio = crate::audio::AUDIO_ENGINE.lock();
+        let track = audio.current_track();
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("[AUDIO] Switched to next track: '{}'", track.title);
+        vga::set_color(Color::White, Color::Black);
+    } else if subcmd.eq_ignore_ascii_case("prev") {
+        crate::audio::AUDIO_ENGINE.lock().prev_track();
+        let audio = crate::audio::AUDIO_ENGINE.lock();
+        let track = audio.current_track();
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("[AUDIO] Switched to previous track: '{}'", track.title);
+        vga::set_color(Color::White, Color::Black);
+    } else if subcmd.eq_ignore_ascii_case("repeat") {
+        let is_rep = crate::audio::AUDIO_ENGINE.lock().toggle_repeat();
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("[AUDIO] Repeat: {}", if is_rep { "ON" } else { "OFF" });
+        vga::set_color(Color::White, Color::Black);
+    } else if subcmd.starts_with("vol ") || subcmd.starts_with("volume ") {
+        let parts: alloc::vec::Vec<&str> = subcmd.split_whitespace().collect();
+        if parts.len() >= 2 {
+            if let Ok(vol) = parts[1].parse::<u8>() {
+                crate::audio::AUDIO_ENGINE.lock().set_volume(vol);
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!("[AUDIO] Volume set to {}%", vol.min(100));
+                vga::set_color(Color::White, Color::Black);
+                return;
+            }
+        }
+        vga::set_color(Color::Yellow, Color::Black);
+        kprintln!("Usage: audio vol <0-100>");
+        vga::set_color(Color::White, Color::Black);
+    } else {
+        vga::set_color(Color::Yellow, Color::Black);
+        kprintln!("Usage: audio [play | pause | stop | next | prev | repeat | vol <0-100> | status]");
+        vga::set_color(Color::White, Color::Black);
+    }
+}
+

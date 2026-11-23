@@ -63,6 +63,30 @@ pub fn find_device(vendor_id: u16, device_id: u16) -> Option<PciDevice> {
     None
 }
 
+/// Finds a PCI device matching class and subclass code (e.g. 0x04:0x01 for Audio).
+pub fn find_device_by_class(class_code: u8, subclass: u8) -> Option<PciDevice> {
+    for bus in 0..=32 {
+        for slot in 0..32 {
+            if let Some(dev0) = PciDevice::probe(bus, slot, 0) {
+                if dev0.class_code == class_code && dev0.subclass == subclass {
+                    return Some(dev0);
+                }
+                let is_multi_function = (dev0.header_type & 0x80) != 0;
+                if is_multi_function {
+                    for func in 1..8 {
+                        if let Some(dev_func) = PciDevice::probe(bus, slot, func) {
+                            if dev_func.class_code == class_code && dev_func.subclass == subclass {
+                                return Some(dev_func);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Initializes the PCI subsystem and logs discovered devices.
 pub fn init() -> Vec<PciDevice> {
     info!("========================================================");
