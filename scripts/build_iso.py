@@ -53,7 +53,7 @@ def main():
     cmd_xorriso = [
         "xorriso", "-as", "mkisofs",
         "-R", "-r", "-J",
-        "-volid", "RUST_MICRO_OS",
+        "-volid", "BUBBLEOS",
         "-b", "boot/cdboot.bin",
         "-no-emul-boot",
         "-boot-load-size", "4",

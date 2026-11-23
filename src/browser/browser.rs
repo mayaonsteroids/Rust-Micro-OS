@@ -124,8 +124,8 @@ impl BrowserState {
         self.scroll_row = 0;
         self.set_status("Ready. Type 'g <url>' to browse or select a link.");
 
-        let home_html = b"<html><head><title>Micro-OS Web Browser</title></head><body>\
-            <h1>Micro-OS Web Browser</h1>\
+        let home_html = b"<html><head><title>BubbleOS Web Browser</title></head><body>\
+            <h1>BubbleOS Web Browser</h1>\
             <p>Single-tab text web browser on bare-metal x86_64.</p>\
             <hr/>\
             <p>Controls: <b>g &lt;url&gt;</b> (navigate), <b>&lt;num&gt;</b> (follow link), <b>u/d</b> (scroll), <b>b</b> (back), <b>r</b> (reload), <b>q</b> (quit)</p>\
@@ -358,7 +358,7 @@ impl BrowserState {
         // Row 0: Title Bar (Medium Purple on Light Lavender background)
         vga::set_color(Color::LightCyan, Color::Black);
         let title = self.page.title_str();
-        kprint!("[Micro-OS Browser] - ");
+        kprint!("[BubbleOS Browser] - ");
         if title.len() > 40 {
             kprint!("{:.40}... ", title);
         } else {
@@ -448,7 +448,7 @@ pub fn run_browser(initial_url: Option<&str>) {
         // Check for quit
         if input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("quit") || input.eq_ignore_ascii_case("exit") {
             vga::set_color(Color::LightCyan, Color::Black);
-            kprintln!("[Browser] Closing browser tab and returning to Micro-OS shell...");
+            kprintln!("[Browser] Closing browser tab and returning to BubbleOS shell...");
             vga::set_color(Color::White, Color::Black);
             break;
         }

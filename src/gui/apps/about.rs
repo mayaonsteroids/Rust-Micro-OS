@@ -26,11 +26,14 @@ impl AboutApp {
         compositor.draw_box(cx + 2, cy + 1, 62, 19, false, Color::Cyan, Color::Black);
 
         // Header Title
-        compositor.draw_string(cx + 16, cy + 2, "RUST MICRO-OS v0.1.0", Color::LightCyan, Color::Black);
-        compositor.draw_string(cx + 13, cy + 3, "Desktop Edition - Phase 1 Milestone", Color::LightGray, Color::Black);
+        compositor.draw_string(cx + 18, cy + 2, "BUBBLEOS v0.1.0", Color::LightCyan, Color::Black);
+        compositor.draw_string(cx + 12, cy + 3, "A little OS with big possibilities.", Color::LightGray, Color::Black);
         compositor.draw_string(cx + 4, cy + 4, "--------------------------------------------------------", Color::LightGray, Color::Black);
 
         // System Details
+        compositor.draw_string(cx + 6, cy + 5, "Operating System:  ", Color::White, Color::Black);
+        compositor.draw_string(cx + 25, cy + 5, "BubbleOS v0.1.0 (Rust, no_std)", Color::LightCyan, Color::Black);
+
         compositor.draw_string(cx + 6, cy + 6, "Current User:      ", Color::White, Color::Black);
         compositor.draw_string(cx + 25, cy + 6, identity::get_username(), Color::LightGreen, Color::Black);
 
@@ -81,18 +84,20 @@ impl AboutApp {
         // Draw 32x32 About Icon on Banner
         crate::graphics::image::draw_about_icon(fb, card_x + 28, card_y + 24);
 
-        font::draw_string_scaled(fb, card_x + 72, card_y + 20, "RUST MICRO-OS", theme::WHITE, 2);
-        font::draw_string(fb, card_x + 74, card_y + 54, "Desktop Edition - 1024x768 Truecolor BGA Graphics", Color::rgb(220, 205, 245), theme::DEEP_PURPLE);
+        font::draw_string_scaled(fb, card_x + 72, card_y + 20, "BUBBLEOS", theme::WHITE, 2);
+        font::draw_string(fb, card_x + 74, card_y + 54, "A little OS with big possibilities. - Release v0.1.0", Color::rgb(220, 205, 245), theme::DEEP_PURPLE);
 
         // Specification Rows
         let row_start_y = card_y + 104;
         let specs = [
+            ("Operating System:", "BubbleOS v0.1.0 (Rust, no_std)", theme::PRIMARY_PURPLE),
+            ("Short Description:", "A little OS with big possibilities.", theme::DARK_PLUM_TEXT),
             ("Current User:", identity::get_username(), Color::rgb(35, 140, 70)),
             ("System Hostname:", "micro-os", theme::DARK_PLUM_TEXT),
             ("Architecture:", "x86_64 Long Mode (Ring 0 Kernel / Ring 3 User Space)", theme::DARK_PLUM_TEXT),
             ("Display Controller:", "Bochs / VirtualBox BGA (1024x768 @ 32 bpp Truecolor)", theme::PRIMARY_PURPLE),
             ("Desktop Theme:", "Light Lavender (#E9DFFF Background, #38264F Plum Text)", theme::DARK_PLUM_TEXT),
-            ("Kernel Memory Budget:", "256 KiB Linked-List / Slab Allocator (Zero Fragmentation)", theme::DARK_PLUM_TEXT),
+            ("Kernel Memory Budget:", "256 KiB Linked-List Allocator (Zero Fragmentation)", theme::DARK_PLUM_TEXT),
             ("Audio Controller:", "Intel ICH AC97 (48 kHz Stereo DMA Ring) + PC Speaker", Color::rgb(35, 140, 70)),
             ("Network Subsystem:", "Intel 82540EM Gigabit (DHCP, DNS, TCP/IP, Wi-Fi Bridge)", Color::rgb(35, 140, 70)),
             ("Input Controller:", "Intel 8042 PS/2 Keyboard Controller (Scancode Set 1)", theme::DARK_PLUM_TEXT),

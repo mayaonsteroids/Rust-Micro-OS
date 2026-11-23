@@ -139,7 +139,7 @@ pub static PLAYLIST: [Track; 4] = [
     Track::new(
         "Mayiiiii",
         "Maya Rust",
-        "Micro-OS Sessions",
+        "BubbleOS Sessions",
         150,
         &[], // Streamed from MAYIIIII_ADPCM via AC97 DMA
     ),

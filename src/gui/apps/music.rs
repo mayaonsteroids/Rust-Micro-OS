@@ -93,7 +93,7 @@ impl MusicApp {
         compositor.draw_string(cx + 4, cy + 2, " ~ ALBUM ~ ", Color::LightCyan, Color::Black);
         compositor.put_char(cx + 7, cy + 3, glyphs::MUSIC_NOTE, art_fg, Color::Black);
         compositor.put_char(cx + 9, cy + 3, glyphs::MUSIC_NOTE, art_fg, Color::Black);
-        compositor.draw_string(cx + 4, cy + 4, "  MICRO-OS ", Color::LightGray, Color::Black);
+        compositor.draw_string(cx + 4, cy + 4, "  BUBBLEOS ", Color::LightGray, Color::Black);
         compositor.draw_string(cx + 4, cy + 5, "  SESSIONS ", Color::LightGray, Color::Black);
 
         // 2. Track Metadata & Status (right of album art)

@@ -5,14 +5,17 @@
 
 use spin::Mutex;
 
-/// Central configured username for the Micro-OS environment.
+/// Central configured username for the BubbleOS environment.
 pub const CONFIGURED_USERNAME: &str = "maya";
 
 /// Default system hostname.
 pub const DEFAULT_HOSTNAME: &str = "micro-os";
 
-/// Operating system name.
-pub const OS_NAME: &str = "Rust Micro-OS";
+/// Official operating system name.
+pub const OS_NAME: &str = "BubbleOS";
+
+/// Operating system short description.
+pub const OS_DESCRIPTION: &str = "A little OS with big possibilities.";
 
 /// Kernel version.
 pub const OS_VERSION: &str = "0.1.0";
@@ -99,10 +102,11 @@ pub fn set_hostname(new_name: &str) -> Result<(), &'static str> {
     guard.set(new_name)
 }
 
-/// Verified system information for uname.
+/// Verified system information for uname and system display.
 #[derive(Debug, Clone, Copy)]
 pub struct SystemInfo {
     pub os_name: &'static str,
+    pub description: &'static str,
     pub version: &'static str,
     pub architecture: &'static str,
     pub cpu_mode: &'static str,
@@ -113,6 +117,7 @@ pub struct SystemInfo {
 pub fn get_system_info() -> SystemInfo {
     SystemInfo {
         os_name: OS_NAME,
+        description: OS_DESCRIPTION,
         version: OS_VERSION,
         architecture: ARCHITECTURE,
         cpu_mode: CPU_MODE,

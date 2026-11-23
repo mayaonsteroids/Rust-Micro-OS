@@ -19,7 +19,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     // Diagnostic OS banner emitted directly to COM1 serial
     rust_micro_os::serial_println!("========================================================");
-    rust_micro_os::serial_println!("               RUST MICRO-OS KERNEL v0.1.0             ");
+    rust_micro_os::serial_println!("                 BUBBLEOS KERNEL v0.1.0                 ");
     rust_micro_os::serial_println!("========================================================");
 
     // 3. Structured Logging Demonstrations across all 4 levels
@@ -352,7 +352,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         proc_user, user_aspace.cr3.start_address().as_u64());
 
     // Step 2: Load user application into User Space
-    let app_msg = b"Micro-OS User Process Running at Ring 3 via Hardware Isolation!";
+    let app_msg = b"BubbleOS User Process Running at Ring 3 via Hardware Isolation!";
     let data_virt = rust_micro_os::memory::address_space::phys_to_virt(user_aspace.user_data_frame.start_address());
     unsafe {
         core::ptr::copy_nonoverlapping(app_msg.as_ptr(), data_virt.as_mut_ptr::<u8>(), app_msg.len());

@@ -36,7 +36,7 @@ impl BrowserApp {
 
         compositor.draw_string(cx + 2, cy + 12, "Interactive Document Hyperlinks:", Color::LightCyan, Color::Black);
         compositor.draw_string(cx + 4, cy + 14, "[1] More information... (https://www.iana.org/domains/example)", Color::LightGreen, Color::Black);
-        compositor.draw_string(cx + 4, cy + 15, "[2] Rust Micro-OS Documentation (http://micro-os.local/docs)", Color::LightGreen, Color::Black);
+        compositor.draw_string(cx + 4, cy + 15, "[2] BubbleOS Documentation (http://micro-os.local/docs)", Color::LightGreen, Color::Black);
 
         // 4. Status Bar
         compositor.draw_string(cx, cy + 20, "----------------------------------------------------------------", Color::LightGray, Color::Black);
@@ -96,7 +96,7 @@ impl BrowserApp {
         font::draw_string(fb, cx + 48, doc_y + 204, "[1] More information... (https://www.iana.org/domains/example)", Color::rgb(30, 130, 220), Color::rgb(240, 235, 250));
 
         draw::fill_rounded_rect(fb, cx + 36, doc_y + 238, 520, 34, 4, Color::rgb(240, 235, 250));
-        font::draw_string(fb, cx + 48, doc_y + 246, "[2] Rust Micro-OS Documentation (http://micro-os.local/docs)", Color::rgb(30, 130, 220), Color::rgb(240, 235, 250));
+        font::draw_string(fb, cx + 48, doc_y + 246, "[2] BubbleOS Documentation (http://micro-os.local/docs)", Color::rgb(30, 130, 220), Color::rgb(240, 235, 250));
 
         // 3. Status Bar
         let sb_y = doc_y + doc_h + 12;

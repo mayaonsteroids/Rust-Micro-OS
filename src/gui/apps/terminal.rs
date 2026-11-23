@@ -73,7 +73,7 @@ impl TerminalApp {
 
     pub fn init(&mut self) {
         self.append_line("==================================================", Color::LightCyan);
-        self.append_line("       RUST MICRO-OS INTERACTIVE TERMINAL         ", Color::LightCyan);
+        self.append_line("            BUBBLEOS INTERACTIVE TERMINAL             ", Color::LightCyan);
         self.append_line("==================================================", Color::LightCyan);
         self.append_line("Logged in as: maya | Host: micro-os | Arch: x86_64", Color::White);
         self.append_line("Type 'wifi' for network info, 'help' for commands", Color::DarkGray);
@@ -213,7 +213,7 @@ impl TerminalApp {
                 crate::shell::commands::dispatch_command("wifi");
             }
             "help" => {
-                self.append_line("Micro-OS Shell Commands:", Color::LightCyan);
+                self.append_line("BubbleOS Shell Commands:", Color::LightCyan);
                 self.append_line("  wifi          - Live network & Wi-Fi diagnostics", Color::LightGreen);
                 self.append_line("  whoami        - Display current username (maya)", Color::White);
                 self.append_line("  browser [url] - Lightweight single-tab web browser", Color::White);
@@ -234,7 +234,6 @@ impl TerminalApp {
                 self.append_line("[Command executed]", Color::LightGreen);
             }
         }
-        crate::serial_print!("micro-os> ");
 
         // Echo prompt back to serial for test script sync
         crate::serial_print!("micro-os> ");
@@ -308,7 +307,7 @@ impl TerminalApp {
         // Terminal sub-header tab
         let tab_bg = Color::rgb(35, 26, 50);
         fb.fill_rect(cx + 2, cy + 2, cw - 4, 28, tab_bg);
-        font::draw_string(fb, cx + 16, cy + 8, "[maya@micro-os: ~] (Interactive Shell - Long Mode)", Color::rgb(180, 160, 210), tab_bg);
+        font::draw_string(fb, cx + 16, cy + 8, "[maya@micro-os: ~] (BubbleOS Interactive Shell - Long Mode)", Color::rgb(180, 160, 210), tab_bg);
         draw::draw_hline(fb, cx + 2, cx + cw - 2, cy + 30, Color::rgb(70, 52, 95));
 
         // Visible lines rendering

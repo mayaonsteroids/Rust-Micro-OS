@@ -49,7 +49,7 @@ impl FilesApp {
 
         // Preview box inside right pane
         compositor.draw_string(list_x + 2, cy + 12, "File Preview (readme.txt):", Color::LightCyan, Color::Black);
-        compositor.draw_string(list_x + 2, cy + 13, "\"Welcome to Rust Micro-OS Desktop!\"", Color::LightGray, Color::Black);
+        compositor.draw_string(list_x + 2, cy + 13, "\"Welcome to BubbleOS Desktop!\"", Color::LightGray, Color::Black);
         compositor.draw_string(list_x + 2, cy + 14, "\"User: maya | Arch: x86_64 Long Mode\"", Color::LightGray, Color::Black);
         compositor.draw_string(list_x + 2, cy + 15, "\"Targeting RamFS backing in Phase 2.\"", Color::LightGray, Color::Black);
 
@@ -147,7 +147,7 @@ impl FilesApp {
         draw::draw_rounded_rect(fb, list_x + 16, prev_y, list_w - 32, prev_h, 6, theme::BORDER_LIGHT);
 
         font::draw_string(fb, list_x + 28, prev_y + 12, "File Preview: readme.txt", theme::PRIMARY_PURPLE, Color::rgb(248, 245, 255));
-        font::draw_string(fb, list_x + 28, prev_y + 36, "\"Welcome to Rust Micro-OS Desktop!\"", theme::DARK_PLUM_TEXT, Color::rgb(248, 245, 255));
+        font::draw_string(fb, list_x + 28, prev_y + 36, "\"Welcome to BubbleOS Desktop!\"", theme::DARK_PLUM_TEXT, Color::rgb(248, 245, 255));
         font::draw_string(fb, list_x + 28, prev_y + 56, "\"User: maya | Arch: x86_64 Long Mode | VRAM: 1024x768x32 BGA\"", theme::DARK_PLUM_TEXT, Color::rgb(248, 245, 255));
         font::draw_string(fb, list_x + 28, prev_y + 76, "\"RamFS virtual file system backing fully operational.\"", Color::rgb(120, 105, 140), Color::rgb(248, 245, 255));
 

@@ -56,7 +56,7 @@ impl AppId {
             AppId::Music => "Music Player",
             AppId::SysMon => "System Monitor",
             AppId::Settings => "Settings",
-            AppId::About => "About",
+            AppId::About => "About BubbleOS",
         }
     }
 

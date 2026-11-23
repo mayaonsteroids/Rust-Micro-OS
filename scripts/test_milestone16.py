@@ -116,7 +116,7 @@ def run_milestone16_audit():
     print("\n[2/8] Testing Line Editing & Backspace handling (`hezzz\\x08\\x08\\x08lp`)...")
     backspace_test = "hezzz\x08\x08\x08lp\n"
     out = send_cmd(backspace_test, wait_for_prompt=True)
-    if "Micro-OS Shell Commands:" in full_output:
+    if "BubbleOS Shell Commands:" in full_output or "Micro-OS Shell Commands:" in full_output:
         print("  [+] Backspace line editing verified! Typo corrected to 'help' and menu displayed.")
     else:
         print("[-] FAIL: Backspace line editing failed to produce 'help' command output.")

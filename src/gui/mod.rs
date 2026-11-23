@@ -34,8 +34,8 @@ pub fn show_boot_splash(status: &str) {
     // Outer double-line purple box (#5C3C8A)
     comp.draw_box(box_x, box_y, box_w, box_h, true, Color::Cyan, Color::Black);
 
-    // Title: RUST MICRO-OS
-    comp.draw_string(box_x + 15, box_y + 1, "RUST MICRO-OS", Color::LightCyan, Color::Black);
+    // Title: BUBBLEOS
+    comp.draw_string(box_x + 18, box_y + 1, "BUBBLEOS", Color::LightCyan, Color::Black);
     comp.draw_string(box_x + 14, box_y + 2, "Desktop Edition", Color::DarkGray, Color::Black);
 
     // Status message
@@ -192,8 +192,8 @@ impl Desktop {
         draw::fill_rounded_rect(fb, top_x, top_y, top_w, top_h, 6, theme::WINDOW_SURFACE);
         draw::draw_rounded_rect(fb, top_x, top_y, top_w, top_h, 6, theme::BORDER_LIGHT);
 
-        font::draw_string(fb, top_x + 16, top_y + 12, "RUST MICRO-OS", theme::PRIMARY_PURPLE, theme::WINDOW_SURFACE);
-        font::draw_string(fb, top_x + 130, top_y + 12, "|   Desktop Environment   |   User: maya   |   Kernel: x86_64 Long Mode", theme::DARK_PLUM_TEXT, theme::WINDOW_SURFACE);
+        font::draw_string(fb, top_x + 16, top_y + 12, "BUBBLEOS", theme::PRIMARY_PURPLE, theme::WINDOW_SURFACE);
+        font::draw_string(fb, top_x + 105, top_y + 12, "|   A little OS with big possibilities   |   User: maya   |   x86_64", theme::DARK_PLUM_TEXT, theme::WINDOW_SURFACE);
         font::draw_string(fb, top_x + top_w - 180, top_y + 12, "[Light Lavender Theme]", theme::PRIMARY_PURPLE, theme::WINDOW_SURFACE);
 
         // Central Welcome & Application Dashboard Card (x = 136, y = 72, w = 840, h = 668)
@@ -210,8 +210,8 @@ impl Desktop {
         draw::fill_rounded_rect(fb, cx + 1, cy + 1, cw - 2, 60, 7, theme::DEEP_PURPLE);
         fb.fill_rect(cx + 1, cy + 30, cw - 2, 32, theme::DEEP_PURPLE);
 
-        font::draw_string_scaled(fb, cx + 24, cy + 12, "WELCOME TO RUST MICRO-OS", theme::WHITE, 2);
-        font::draw_string(fb, cx + 24, cy + 42, "Light Lavender Desktop Environment - Click any icon or press [1-8] to launch", Color::rgb(225, 210, 248), theme::DEEP_PURPLE);
+        font::draw_string_scaled(fb, cx + 24, cy + 12, "WELCOME TO BUBBLEOS", theme::WHITE, 2);
+        font::draw_string(fb, cx + 24, cy + 42, "A little OS with big possibilities - Click any icon or press [1-8] to launch", Color::rgb(225, 210, 248), theme::DEEP_PURPLE);
 
         // 8 Application Quick-Launch Tiles (2 columns x 4 rows)
         let col_w = 380;
@@ -274,11 +274,11 @@ impl Desktop {
         comp.fill_rect(12, 0, 68, 25, b' ', Color::White, Color::Black);
 
         // Top Status Header (Row 1)
-        comp.draw_string(14, 1, "RUST MICRO-OS", Color::LightCyan, Color::Black);
-        comp.draw_string(28, 1, "|", Color::DarkGray, Color::Black);
-        comp.draw_string(30, 1, "Desktop Environment", Color::White, Color::Black);
-        comp.draw_string(50, 1, "|", Color::DarkGray, Color::Black);
-        comp.draw_string(52, 1, "User: maya", Color::LightGreen, Color::Black);
+        comp.draw_string(14, 1, "BUBBLEOS", Color::LightCyan, Color::Black);
+        comp.draw_string(23, 1, "|", Color::DarkGray, Color::Black);
+        comp.draw_string(25, 1, "Desktop Environment", Color::White, Color::Black);
+        comp.draw_string(45, 1, "|", Color::DarkGray, Color::Black);
+        comp.draw_string(47, 1, "User: maya", Color::LightGreen, Color::Black);
 
         // Horizontal Divider Line (Row 2)
         for col in 13..79 {
@@ -299,7 +299,7 @@ impl Desktop {
         comp.draw_string(cx + 2, cy + 3, "--------------------------------------------------------", Color::DarkGray, Color::Black);
 
         // Information lines
-        comp.draw_string(cx + 4, cy + 5, "Welcome to Rust Micro-OS, maya!", Color::White, Color::Black);
+        comp.draw_string(cx + 4, cy + 5, "Welcome to BubbleOS, maya! A little OS with big possibilities.", Color::White, Color::Black);
         comp.draw_string(cx + 4, cy + 6, "Press any number [1-8] or click an icon to launch an app:", Color::DarkGray, Color::Black);
 
         // 8 Application Shortcuts

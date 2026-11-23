@@ -10,7 +10,7 @@ pub fn run_shell() -> ! {
     kprintln!();
     vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("========================================================");
-    kprintln!("         MICRO-OS INTERACTIVE COMMAND SHELL             ");
+    kprintln!("         BUBBLEOS INTERACTIVE COMMAND SHELL             ");
     kprintln!("========================================================");
     vga::set_color(Color::White, Color::Black);
     kprintln!("Type 'help' for available commands or 'run <program>'.");
@@ -73,7 +73,7 @@ pub fn dispatch_command(input: &str) {
 /// Handler for `help`: Displays all supported shell commands.
 fn cmd_help() {
     vga::set_color(Color::LightCyan, Color::Black);
-    kprintln!("Micro-OS Shell Commands:");
+    kprintln!("BubbleOS Shell Commands:");
     vga::set_color(Color::White, Color::Black);
     kprintln!("  help          - Display this help information");
     kprintln!("  clear         - Clear the screen buffer");
@@ -510,7 +510,7 @@ fn cmd_net(args: &str) {
         let msg = if parts.len() > 2 {
             parts[2].as_bytes()
         } else {
-            b"Hello from Rust Micro-OS UDP!"
+            b"Hello from BubbleOS UDP!"
         };
 
         vga::set_color(Color::LightCyan, Color::Black);

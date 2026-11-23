@@ -113,7 +113,7 @@ def main():
         # Test 5: uname default
         out = send_cmd("uname\n")
         passed = (
-            "Rust Micro-OS" in out and
+            ("BubbleOS" in out or "Rust Micro-OS" in out) and
             "0.1.0" in out and
             "x86_64" in out and
             "Long Mode" in out and
@@ -124,7 +124,7 @@ def main():
         # Test 6: uname -a (all info including updated hostname)
         out = send_cmd("uname -a\n")
         passed = (
-            "Rust Micro-OS" in out and
+            ("BubbleOS" in out or "Rust Micro-OS" in out) and
             "rust-box" in out and
             "0.1.0" in out and
             "x86_64" in out and
@@ -139,7 +139,7 @@ def main():
         out_m = send_cmd("uname -m\n")
         out_n = send_cmd("uname -n\n")
         passed = (
-            "Rust Micro-OS" in out_s and
+            ("BubbleOS" in out_s or "Rust Micro-OS" in out_s) and
             "0.1.0" in out_r and
             "x86_64" in out_m and
             "rust-box" in out_n
@@ -176,6 +176,10 @@ def main():
         out = send_cmd("run calc\n")
         passed = ("427" in out and "exit code 0" in out)
         record_test("Regression: run calc", passed, "Ring 3 calc program executes and exits with 0")
+
+        # Minimize terminal window back to Desktop Home Screen for wallpaper verification
+        send_cmd("\x1b")
+        time.sleep(0.5)
 
         # Test 13: Capture VGA screenshot and verify Lavender theme palette
         rel_ppm = "screenshots/vga_milestone17_1.ppm"

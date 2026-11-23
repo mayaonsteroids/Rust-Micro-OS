@@ -330,9 +330,9 @@ def main():
 
         # Test 15: Launch Browser (`browser`) & Verify Home Page Interface
         out_browser_init = send_cmd("browser\n", wait_for_target="browser> ", timeout=10.0)
-        home_ok = ("[Micro-OS Browser]" in out_browser_init and
+        home_ok = (("[BubbleOS Browser]" in out_browser_init or "[Micro-OS Browser]" in out_browser_init) and
                    "about:home" in out_browser_init and
-                   "Micro-OS Web Browser" in out_browser_init and
+                   ("BubbleOS Web Browser" in out_browser_init or "Micro-OS Web Browser" in out_browser_init) and
                    "[Tab 1/1]" in out_browser_init and
                    "[1] Local Test Server" in out_browser_init)
         record_test("15. Interactive Browser Home Page", home_ok, "Rendered single-tab browser UI with address bar and quickstart links")
