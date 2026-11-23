@@ -59,6 +59,7 @@ pub fn dispatch_command(input: &str) {
         "mem" => cmd_mem(),
         "trace" => cmd_trace(),
         "run" => cmd_run(args),
+        "desktop" | "gui" => cmd_desktop(),
         _ => {
             vga::set_color(Color::Yellow, Color::Black);
             kprintln!("Unknown command: '{}'. Type 'help' for a list of commands.", cmd);
@@ -86,6 +87,7 @@ fn cmd_help() {
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
     kprintln!("  trace         - Dump diagnostics circular trace buffer");
     kprintln!("  run <program> - Execute a user program in isolated Ring 3 (hello, counter, calc)");
+    kprintln!("  desktop       - Launch Light Lavender windowed desktop GUI (or 'gui')");
 }
 
 /// Handler for `clear`: Clears the VGA text screen and serial console.
@@ -93,6 +95,11 @@ fn cmd_clear() {
     vga::init_lavender_palette();
     vga::clear_screen();
     crate::serial_print!("\x1b[2J\x1b[H");
+}
+
+/// Handler for `desktop` / `gui`: Launches the interactive desktop environment.
+fn cmd_desktop() {
+    crate::gui::run_desktop();
 }
 
 /// Handler for `whoami`: Displays the configured username.
