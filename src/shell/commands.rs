@@ -49,6 +49,7 @@ pub fn dispatch_command(input: &str) {
         "uname" => cmd_uname(args),
         "pci" => cmd_pci(),
         "net" => cmd_net(args),
+        "http" => cmd_http(args),
         "list" => cmd_list(),
         "tasks" => cmd_tasks(),
         "mem" => cmd_mem(),
@@ -73,7 +74,8 @@ fn cmd_help() {
     kprintln!("  hostname      - Display or set system hostname");
     kprintln!("  uname [-a]    - Display system and architecture information");
     kprintln!("  pci           - Enumerate and display PCI bus devices and BARs");
-    kprintln!("  net [cmd]     - Network stack: info, arp, dhcp, dns, ping, udp, test");
+    kprintln!("  net [cmd]     - Network stack: info, arp, dhcp, dns, ping, udp, tcp, test");
+    kprintln!("  http get <h>  - Fetch web content via HTTP/1.1 (e.g. 'http get example.com /')");
     kprintln!("  list          - List available Ring 3 user programs");
     kprintln!("  tasks         - Display active and registered kernel tasks and processes");
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
@@ -230,6 +232,24 @@ fn parse_u8(s: &str) -> Option<u8> {
     }
     if val <= 255 {
         Some(val as u8)
+    } else {
+        None
+    }
+}
+
+fn parse_u16(s: &str) -> Option<u16> {
+    let mut val: u32 = 0;
+    if s.is_empty() || s.len() > 5 {
+        return None;
+    }
+    for b in s.bytes() {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        val = val * 10 + (b - b'0') as u32;
+    }
+    if val <= 65535 {
+        Some(val as u16)
     } else {
         None
     }
@@ -477,6 +497,103 @@ fn cmd_net(args: &str) {
             }
         }
         return;
+    }
+
+    if subcmd.starts_with("tcp") {
+        let tcp_args = subcmd["tcp".len()..].trim();
+        if tcp_args.is_empty() || tcp_args == "help" {
+            vga::set_color(Color::Yellow, Color::Black);
+            kprintln!("Usage: net tcp test [ip] [port]");
+            kprintln!("Example: net tcp test 10.0.2.2 80");
+            vga::set_color(Color::White, Color::Black);
+            return;
+        }
+
+        if tcp_args.starts_with("test") {
+            let test_params = tcp_args["test".len()..].trim();
+            let mut parts = test_params.split_whitespace();
+            let target_ip = if let Some(ip_str) = parts.next() {
+                parse_ipv4_address(ip_str).unwrap_or([10, 0, 2, 2])
+            } else {
+                [10, 0, 2, 2]
+            };
+            let target_port = if let Some(port_str) = parts.next() {
+                parse_u16(port_str).unwrap_or(80)
+            } else {
+                80
+            };
+
+            vga::set_color(Color::LightCyan, Color::Black);
+            kprintln!(
+                "[TCP] Initiating 3-way handshake with {}.{}.{}.{}:{}...",
+                target_ip[0], target_ip[1], target_ip[2], target_ip[3], target_port
+            );
+            vga::set_color(Color::White, Color::Black);
+
+            match crate::net::tcp_connect(target_ip, target_port, 20_000_000) {
+                Ok(mut stream) => {
+                    vga::set_color(Color::LightGreen, Color::Black);
+                    kprintln!("[TCP] Connection established! State: ESTABLISHED");
+                    kprintln!(
+                        "      Local Port: {} | Remote Seq: {} | Local Seq: {}",
+                        stream.local_port, stream.remote_seq, stream.local_seq
+                    );
+                    vga::set_color(Color::White, Color::Black);
+
+                    // Transmit test HTTP GET payload
+                    let test_msg = b"GET / HTTP/1.1\r\nHost: 10.0.2.2\r\nConnection: close\r\n\r\n";
+                    vga::set_color(Color::LightCyan, Color::Black);
+                    kprintln!("[TCP] Transmitting {} bytes of HTTP test payload...", test_msg.len());
+                    vga::set_color(Color::White, Color::Black);
+
+                    if let Err(e) = stream.write(test_msg) {
+                        vga::set_color(Color::LightRed, Color::Black);
+                        kprintln!("[TCP] Payload transmission failed: {}", e);
+                        vga::set_color(Color::White, Color::Black);
+                    } else {
+                        vga::set_color(Color::LightGreen, Color::Black);
+                        kprintln!("[TCP] Payload transmitted (ACK confirmed).");
+                        vga::set_color(Color::White, Color::Black);
+
+                        // Read response
+                        let mut rx_buf = [0u8; 1024];
+                        match stream.read_to_end(&mut rx_buf, 20_000_000) {
+                            Ok(n) => {
+                                vga::set_color(Color::LightGreen, Color::Black);
+                                kprintln!("[TCP] Received {} response bytes from peer.", n);
+                                vga::set_color(Color::White, Color::Black);
+                                if n > 0 {
+                                    let preview_len = core::cmp::min(n, 120);
+                                    if let Ok(s) = core::str::from_utf8(&rx_buf[..preview_len]) {
+                                        kprintln!("      Data: \"{}\"...", s);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                vga::set_color(Color::Yellow, Color::Black);
+                                kprintln!("[TCP] Read note: {}", e);
+                                vga::set_color(Color::White, Color::Black);
+                            }
+                        }
+                    }
+
+                    // Teardown
+                    vga::set_color(Color::LightCyan, Color::Black);
+                    kprintln!("[TCP] Closing connection (FIN teardown)...");
+                    vga::set_color(Color::White, Color::Black);
+                    stream.close();
+                    vga::set_color(Color::LightGreen, Color::Black);
+                    kprintln!("[TCP] FIN segment transmitted cleanly.");
+                    vga::set_color(Color::White, Color::Black);
+                }
+                Err(e) => {
+                    vga::set_color(Color::LightRed, Color::Black);
+                    kprintln!("[TCP] Handshake failed: {}", e);
+                    vga::set_color(Color::White, Color::Black);
+                }
+            }
+            return;
+        }
     }
 
     // Default `net` output (interface hardware status)
@@ -770,6 +887,92 @@ fn cmd_run(args: &str) {
             vga::set_color(Color::LightRed, Color::Black);
             kprintln!("[SHELL] Failed to execute '{}': {}", args, err);
             kprintln!("Type 'list' to see available programs.");
+            vga::set_color(Color::White, Color::Black);
+        }
+    }
+}
+
+/// Handler for `http`: Performs HTTP/1.1 GET request to specified hostname and path.
+fn cmd_http(args: &str) {
+    let args = args.trim();
+    if args.is_empty() {
+        vga::set_color(Color::Yellow, Color::Black);
+        kprintln!("Usage: http get <hostname> [path]");
+        kprintln!("Example: http get example.com /");
+        kprintln!("         http get 10.0.2.2:8080 /");
+        vga::set_color(Color::White, Color::Black);
+        return;
+    }
+
+    let target = if args.starts_with("get ") {
+        args["get ".len()..].trim()
+    } else if args.starts_with("GET ") {
+        args["GET ".len()..].trim()
+    } else {
+        args
+    };
+
+    let mut parts = target.split_whitespace();
+    let host_or_url = parts.next().unwrap_or("").trim();
+    let explicit_path = parts.next().unwrap_or("").trim();
+
+    // Strip http:// or https:// if provided
+    let host_or_url = if let Some(stripped) = host_or_url.strip_prefix("http://") {
+        stripped
+    } else if let Some(stripped) = host_or_url.strip_prefix("https://") {
+        vga::set_color(Color::Yellow, Color::Black);
+        kprintln!("[HTTP] Note: HTTPS is not yet supported in M17.5. Falling back to HTTP.");
+        vga::set_color(Color::White, Color::Black);
+        stripped
+    } else {
+        host_or_url
+    };
+
+    let (hostname, path) = if !explicit_path.is_empty() {
+        (host_or_url, explicit_path)
+    } else if let Some(slash_idx) = host_or_url.find('/') {
+        let (h, p) = host_or_url.split_at(slash_idx);
+        (h, p)
+    } else {
+        (host_or_url, "/")
+    };
+
+    let clean_path = if path.starts_with('/') { path } else { "/" };
+
+    vga::set_color(Color::LightCyan, Color::Black);
+    kprintln!("[HTTP] Sending GET request to http://{}{}", hostname, clean_path);
+    vga::set_color(Color::White, Color::Black);
+
+    match crate::net::http_get(hostname, clean_path) {
+        Ok(resp) => {
+            vga::set_color(Color::LightGreen, Color::Black);
+            kprintln!("[HTTP] Response Status: {}", resp.status_code);
+            vga::set_color(Color::White, Color::Black);
+            kprintln!(
+                "  Content-Length: {} bytes (chunked: {}, truncated: {})",
+                resp.content_length, resp.is_chunked, resp.is_truncated
+            );
+            kprintln!("  Body Received:  {} bytes", resp.body_len);
+            if resp.body_len > 0 {
+                vga::set_color(Color::LightCyan, Color::Black);
+                kprintln!("--- Response Body Preview ---");
+                vga::set_color(Color::White, Color::Black);
+                let preview_len = core::cmp::min(resp.body_len, 400);
+                if let Ok(body_str) = core::str::from_utf8(&resp.body[..preview_len]) {
+                    kprintln!("{}", body_str);
+                    if resp.body_len > 400 {
+                        vga::set_color(Color::Yellow, Color::Black);
+                        kprintln!("... [truncated remaining {} bytes]", resp.body_len - 400);
+                        vga::set_color(Color::White, Color::Black);
+                    }
+                } else {
+                    kprintln!("[Binary or non-UTF8 payload: {} bytes]", resp.body_len);
+                }
+            }
+        }
+        Err(e) => {
+            vga::set_color(Color::LightRed, Color::Black);
+            kprintln!("[HTTP] Request failed: {}", e);
             vga::set_color(Color::White, Color::Black);
         }
     }

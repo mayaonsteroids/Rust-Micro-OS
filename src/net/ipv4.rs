@@ -17,6 +17,37 @@ pub type Ipv4Address = [u8; 4];
 pub const IPV4_BROADCAST: Ipv4Address = [255, 255, 255, 255];
 pub const IPV4_LOOPBACK: Ipv4Address = [127, 0, 0, 1];
 
+/// Parses a string representation of an IPv4 address (e.g. "192.168.1.1").
+pub fn parse_ipv4_addr(s: &str) -> Option<Ipv4Address> {
+    let mut parts = s.split('.');
+    let a: u8 = parse_u8_dec(parts.next()?)?;
+    let b: u8 = parse_u8_dec(parts.next()?)?;
+    let c: u8 = parse_u8_dec(parts.next()?)?;
+    let d: u8 = parse_u8_dec(parts.next()?)?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some([a, b, c, d])
+}
+
+fn parse_u8_dec(s: &str) -> Option<u8> {
+    let mut val: u16 = 0;
+    if s.is_empty() || s.len() > 3 {
+        return None;
+    }
+    for b in s.bytes() {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        val = val * 10 + (b - b'0') as u16;
+    }
+    if val <= 255 {
+        Some(val as u8)
+    } else {
+        None
+    }
+}
+
 /// Parsed IPv4 Header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ipv4Header {

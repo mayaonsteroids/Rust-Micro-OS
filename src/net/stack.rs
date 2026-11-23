@@ -270,7 +270,7 @@ pub fn send_ipv4(
     let dest_mac = if dst_ip == IPV4_BROADCAST {
         BROADCAST_MAC
     } else {
-        resolve_arp(arp_target, 200_000)?
+        resolve_arp(arp_target, 2_000_000)?
     };
 
     let mut ip_buf = [0u8; 1500];
