@@ -44,6 +44,9 @@ pub fn dispatch_command(input: &str) {
     match cmd {
         "help" => cmd_help(),
         "clear" => cmd_clear(),
+        "whoami" => cmd_whoami(),
+        "hostname" => cmd_hostname(args),
+        "uname" => cmd_uname(args),
         "list" => cmd_list(),
         "tasks" => cmd_tasks(),
         "mem" => cmd_mem(),
@@ -64,6 +67,9 @@ fn cmd_help() {
     vga::set_color(Color::White, Color::Black);
     kprintln!("  help          - Display this help information");
     kprintln!("  clear         - Clear the screen buffer");
+    kprintln!("  whoami        - Display current user identity");
+    kprintln!("  hostname      - Display or set system hostname");
+    kprintln!("  uname [-a]    - Display system and architecture information");
     kprintln!("  list          - List available Ring 3 user programs");
     kprintln!("  tasks         - Display active and registered kernel tasks and processes");
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
@@ -76,6 +82,85 @@ fn cmd_clear() {
     vga::init_lavender_palette();
     vga::clear_screen();
     crate::serial_print!("\x1b[2J\x1b[H");
+}
+
+/// Handler for `whoami`: Displays the configured username.
+fn cmd_whoami() {
+    vga::set_color(Color::White, Color::Black);
+    kprintln!("{}", crate::kernel::identity::get_username());
+}
+
+/// Handler for `hostname`: Displays or sets the system hostname.
+fn cmd_hostname(args: &str) {
+    if args.is_empty() {
+        vga::set_color(Color::White, Color::Black);
+        crate::kernel::identity::with_hostname(|name| {
+            kprintln!("{}", name);
+        });
+    } else {
+        match crate::kernel::identity::set_hostname(args) {
+            Ok(()) => {
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!("Hostname updated to '{}'", args);
+                vga::set_color(Color::Yellow, Color::Black);
+                kprintln!("[NOTE: Runtime configuration only; resets on reboot]");
+                vga::set_color(Color::White, Color::Black);
+            }
+            Err(err) => {
+                vga::set_color(Color::LightRed, Color::Black);
+                kprintln!("Error setting hostname: {}", err);
+                vga::set_color(Color::White, Color::Black);
+            }
+        }
+    }
+}
+
+/// Handler for `uname`: Displays verified operating system and build information.
+fn cmd_uname(args: &str) {
+    let info = crate::kernel::identity::get_system_info();
+    vga::set_color(Color::White, Color::Black);
+
+    match args {
+        "-a" => {
+            crate::kernel::identity::with_hostname(|hostname| {
+                kprintln!(
+                    "{} {} {} {} {} (Milestone {})",
+                    info.os_name,
+                    hostname,
+                    info.version,
+                    info.architecture,
+                    info.cpu_mode,
+                    info.milestone
+                );
+            });
+        }
+        "-s" => {
+            kprintln!("{}", info.os_name);
+        }
+        "-r" => {
+            kprintln!("{}", info.version);
+        }
+        "-m" => {
+            kprintln!("{}", info.architecture);
+        }
+        "-n" => {
+            crate::kernel::identity::with_hostname(|hostname| {
+                kprintln!("{}", hostname);
+            });
+        }
+        "" => {
+            kprintln!("Operating system: {}", info.os_name);
+            kprintln!("Version:          {}", info.version);
+            kprintln!("Architecture:     {}", info.architecture);
+            kprintln!("CPU mode:         {}", info.cpu_mode);
+            kprintln!("Milestone:        {}", info.milestone);
+        }
+        _ => {
+            vga::set_color(Color::Yellow, Color::Black);
+            kprintln!("Usage: uname [-a | -s | -r | -m | -n]");
+            vga::set_color(Color::White, Color::Black);
+        }
+    }
 }
 
 /// Handler for `list`: Lists registered Ring 3 user programs.
