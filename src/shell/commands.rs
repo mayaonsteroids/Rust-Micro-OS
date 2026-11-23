@@ -47,6 +47,8 @@ pub fn dispatch_command(input: &str) {
         "whoami" => cmd_whoami(),
         "hostname" => cmd_hostname(args),
         "uname" => cmd_uname(args),
+        "pci" => cmd_pci(),
+        "net" => cmd_net(args),
         "list" => cmd_list(),
         "tasks" => cmd_tasks(),
         "mem" => cmd_mem(),
@@ -70,6 +72,8 @@ fn cmd_help() {
     kprintln!("  whoami        - Display current user identity");
     kprintln!("  hostname      - Display or set system hostname");
     kprintln!("  uname [-a]    - Display system and architecture information");
+    kprintln!("  pci           - Enumerate and display PCI bus devices and BARs");
+    kprintln!("  net [test]    - Display network controller status, MAC, and test packet");
     kprintln!("  list          - List available Ring 3 user programs");
     kprintln!("  tasks         - Display active and registered kernel tasks and processes");
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
@@ -159,6 +163,177 @@ fn cmd_uname(args: &str) {
             vga::set_color(Color::Yellow, Color::Black);
             kprintln!("Usage: uname [-a | -s | -r | -m | -n]");
             vga::set_color(Color::White, Color::Black);
+        }
+    }
+}
+
+/// Handler for `pci`: Scans and displays active PCI bus devices.
+fn cmd_pci() {
+    vga::set_color(Color::LightCyan, Color::Black);
+    kprintln!("=== PCI Bus Device Registry ===");
+    vga::set_color(Color::White, Color::Black);
+
+    let devices = crate::pci::scan_pci();
+    kprintln!("Total active PCI devices: {}", devices.len());
+    kprintln!("BUS:SLOT.F  VENDOR:DEV   CLASS  SUB  NAME");
+    kprintln!("------------------------------------------------------------");
+
+    for dev in &devices {
+        kprintln!(
+            "{:02x}:{:02x}.{}    0x{:04x}:{:04x} 0x{:02x} 0x{:02x} {}",
+            dev.bus,
+            dev.slot,
+            dev.func,
+            dev.vendor_id,
+            dev.device_id,
+            dev.class_code,
+            dev.subclass,
+            dev.class_name()
+        );
+        for (i, bar) in dev.bars.iter().enumerate() {
+            match bar {
+                crate::pci::Bar::Memory { base_addr, size, .. } => {
+                    kprintln!("   BAR{}: Memory at 0x{:08x} ({} KiB)", i, base_addr, size / 1024);
+                }
+                crate::pci::Bar::Io { port, size } => {
+                    kprintln!("   BAR{}: I/O Port at 0x{:04x} ({} B)", i, port, size);
+                }
+                crate::pci::Bar::None => {}
+            }
+        }
+    }
+}
+
+/// Handler for `net`: Displays network device status, MAC address, and tests frame transmission/reception.
+fn cmd_net(args: &str) {
+    vga::set_color(Color::LightCyan, Color::Black);
+    kprintln!("=== Network Interface (Intel E1000) ===");
+    vga::set_color(Color::White, Color::Black);
+
+    let mut guard = crate::net::E1000_DEVICE.lock();
+    let dev = match guard.as_mut() {
+        Some(d) => d,
+        None => {
+            vga::set_color(Color::Yellow, Color::Black);
+            kprintln!("No active network controller detected on PCI bus.");
+            vga::set_color(Color::White, Color::Black);
+            return;
+        }
+    };
+
+    let mac = dev.mac_addr;
+    let link_up = dev.is_link_up();
+
+    kprintln!(
+        "  MAC Address:  {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+    );
+    kprintln!("  Link Status:  {}", if link_up { "UP (1000 Mbps Full Duplex)" } else { "DOWN" });
+    kprintln!("  BAR0 MMIO:    0x{:08x} (size: {} KiB)", dev.bar0_phys, dev.bar0_size / 1024);
+    kprintln!("  DMA RX Ring:  0x{:08x} (8 descriptors, 2048B buffers)", dev.rx_ring_phys);
+    kprintln!("  DMA TX Ring:  0x{:08x} (8 descriptors, 2048B buffers)", dev.tx_ring_phys);
+    kprintln!("  Packets TX:   {} ({} bytes)", dev.tx_packet_count, dev.tx_bytes_count);
+    kprintln!("  Packets RX:   {} ({} bytes)", dev.rx_packet_count, dev.rx_bytes_count);
+
+    if args == "test" || args == "send" {
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("\n[NET] Transmitting test Ethernet frame (Broadcast ARP)...");
+        vga::set_color(Color::White, Color::Black);
+
+        // Construct standard 60-byte broadcast ARP request packet:
+        let mut test_frame = [0u8; 60];
+        test_frame[0..6].copy_from_slice(&[0xFF; 6]);
+        test_frame[6..12].copy_from_slice(&mac);
+        test_frame[12] = 0x08;
+        test_frame[13] = 0x06;
+        test_frame[14] = 0x00;
+        test_frame[15] = 0x01;
+        test_frame[16] = 0x08;
+        test_frame[17] = 0x00;
+        test_frame[18] = 0x06;
+        test_frame[19] = 0x04;
+        test_frame[20] = 0x00;
+        test_frame[21] = 0x01;
+        test_frame[22..28].copy_from_slice(&mac);
+        test_frame[28..32].copy_from_slice(&[10, 0, 2, 15]);
+        test_frame[32..38].copy_from_slice(&[0x00; 6]);
+        test_frame[38..42].copy_from_slice(&[10, 0, 2, 2]);
+
+        match dev.transmit(&test_frame) {
+            Ok(()) => {
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!("[NET] Packet transmitted successfully via DMA (DD completed).");
+                vga::set_color(Color::White, Color::Black);
+
+                // Check for incoming reply (e.g. from QEMU virtual router)
+                let mut rx_buf = [0u8; 1518];
+                let mut received = false;
+                for _ in 0..20_000_000 {
+                    if let Some(len) = dev.receive(&mut rx_buf) {
+                        vga::set_color(Color::LightGreen, Color::Black);
+                        kprintln!("[NET] Received incoming Ethernet frame: {} bytes!", len);
+                        vga::set_color(Color::White, Color::Black);
+                        let eth_type = ((rx_buf[12] as u16) << 8) | (rx_buf[13] as u16);
+                        kprintln!(
+                            "      From: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} | EtherType: 0x{:04x}",
+                            rx_buf[6], rx_buf[7], rx_buf[8], rx_buf[9], rx_buf[10], rx_buf[11], eth_type
+                        );
+                        received = true;
+                        break;
+                    }
+                    core::hint::spin_loop();
+                }
+
+                if !received {
+                    // Test internal hardware MAC loopback verification
+                    vga::set_color(Color::LightCyan, Color::Black);
+                    kprintln!("[NET] Verifying hardware RX engine via MAC loopback mode...");
+                    vga::set_color(Color::White, Color::Black);
+
+                    unsafe {
+                        let rctl = dev.mmio.read32(crate::net::e1000::REG_RCTL);
+                        // Enable MAC loopback (LBM = 01b, bit 6)
+                        dev.mmio.write32(crate::net::e1000::REG_RCTL, rctl | (1 << 6));
+                    }
+
+                    let mut loop_frame = [0u8; 64];
+                    loop_frame[0..6].copy_from_slice(&mac);
+                    loop_frame[6..12].copy_from_slice(&mac);
+                    loop_frame[12] = 0x88;
+                    loop_frame[13] = 0xB5; // IEEE 802 Local Experimental
+                    loop_frame[14..28].copy_from_slice(b"E1000-LOOPBACK");
+
+                    if let Ok(()) = dev.transmit(&loop_frame) {
+                        for _ in 0..500_000 {
+                            if let Some(len) = dev.receive(&mut rx_buf) {
+                                vga::set_color(Color::LightGreen, Color::Black);
+                                kprintln!("[NET] Hardware RX verification SUCCESS: Received {} byte loopback frame!", len);
+                                vga::set_color(Color::White, Color::Black);
+                                received = true;
+                                break;
+                            }
+                            core::hint::spin_loop();
+                        }
+                    }
+
+                    // Restore normal wire mode (clear LBM)
+                    unsafe {
+                        let rctl = dev.mmio.read32(crate::net::e1000::REG_RCTL);
+                        dev.mmio.write32(crate::net::e1000::REG_RCTL, rctl & !(3 << 6));
+                    }
+                }
+
+                if !received {
+                    vga::set_color(Color::Yellow, Color::Black);
+                    kprintln!("[NET] No reply received within polling window.");
+                    vga::set_color(Color::White, Color::Black);
+                }
+            }
+            Err(e) => {
+                vga::set_color(Color::LightRed, Color::Black);
+                kprintln!("[NET] Transmission failed: {}", e);
+                vga::set_color(Color::White, Color::Black);
+            }
         }
     }
 }

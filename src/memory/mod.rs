@@ -24,6 +24,7 @@ pub use address_space::{
 };
 pub use allocator::{HEAP_SIZE, HEAP_START};
 pub use frame_allocator::BootInfoFrameAllocator;
+pub use paging::map_mmio_range;
 
 /// Initializes the complete memory management subsystem:
 /// 1. Initializes the Level 4 Page Table interface (`OffsetPageTable`).

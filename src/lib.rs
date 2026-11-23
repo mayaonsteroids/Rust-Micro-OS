@@ -9,6 +9,8 @@ pub mod console;
 pub mod interrupts;
 pub mod kernel;
 pub mod memory;
+pub mod net;
+pub mod pci;
 pub mod research;
 pub mod scheduler;
 pub mod shell;

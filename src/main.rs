@@ -428,6 +428,11 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // Step 5: Verification of zero state drift and system health
     info!("M14-Demo Step 5: Verified zero state drift, leak-free memory, and kernel health.");
     info!("All Milestone 14 tasks, tests, and demonstrations completed successfully. Entering idle loop.");
+
+    // Milestone 17.2: PCI Enumeration and Network Controller Initialization
+    let _ = rust_micro_os::pci::init();
+    let _ = rust_micro_os::net::init();
+
     info!("--- Milestone 16: Launching Interactive Command Shell ---");
 
     rust_micro_os::shell::run_shell();
