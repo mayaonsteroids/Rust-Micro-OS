@@ -178,8 +178,87 @@ impl fmt::Write for Writer {
 /// Global synchronized VGA Writer wrapped in a spinlock.
 pub static WRITER: Mutex<Writer> = Mutex::new(Writer::new());
 
-/// Initializes the VGA screen by clearing it and setting default colors.
+/// Configures the VGA Attribute Controller and DAC Palette for the Light Lavender aesthetic theme.
+///
+/// Palette specification:
+/// - Background (0 / Black): Very Light Lavender (#E9DFFF) -> (58, 55, 63)
+/// - Normal text (15 / White): Dark Plum (#38264F) -> (14, 9, 20)
+/// - Headings / INFO (11 / LightCyan): Medium Purple (#7952A8) -> (30, 20, 41)
+/// - Border / Decorative (3 / Cyan): Deep Purple (#5C3C8A) -> (23, 15, 34)
+/// - Success (10 / LightGreen, 2 / Green): Muted Green (#2D6A4F) -> (11, 26, 20)
+/// - Warnings (14 / Yellow): Soft Rose (#9B3356) -> (38, 13, 21)
+/// - Errors (12 / LightRed, 4 / Red): Readable Dark Red (#8A1C14) -> (34, 7, 5)
+/// - Debug (7 / LightGray): Lavender Slate (#6B5B82) -> (26, 22, 32)
+pub fn init_lavender_palette() {
+    use x86_64::instructions::port::Port;
+
+    unsafe {
+        // 1. Reset Attribute Controller flip-flop and map attributes 0..15 to DAC indices 0..15
+        let mut status_port = Port::<u8>::new(0x3DA);
+        let mut atc_port = Port::<u8>::new(0x3C0);
+
+        for i in 0..16u8 {
+            let _ = status_port.read();
+            atc_port.write(i); // select attribute register i
+            atc_port.write(i); // map to DAC color register i
+        }
+
+        // Re-enable video display (bit 5 = 1)
+        let _ = status_port.read();
+        atc_port.write(0x20);
+
+        // 2. Program VGA DAC Palette Registers (Port 0x3C8 write index, Port 0x3C9 RGB data)
+        // Values are 6-bit (0..63)
+        let mut dac_index = Port::<u8>::new(0x3C8);
+        let mut dac_data = Port::<u8>::new(0x3C9);
+
+        // Palette mapping: (Index, R, G, B)
+        let palette: [(u8, u8, u8, u8); 16] = [
+            (0, 58, 55, 63),  // 0: Black -> Background: Very Light Lavender (#E9DFFF)
+            (1, 20, 15, 29),  // 1: Blue -> Deep Lavender Blue (#524075)
+            (2, 11, 26, 20),  // 2: Green -> Muted Green (#2D6A4F)
+            (3, 23, 15, 34),  // 3: Cyan -> Deep Purple (#5C3C8A)
+            (4, 34, 7, 5),    // 4: Red -> Readable Dark Red (#8A1C14)
+            (5, 19, 10, 21),  // 5: Magenta -> Deep Plum (#4E2856)
+            (6, 26, 20, 16),  // 6: Brown -> Muted Warm Taupe (#6B5344)
+            (7, 26, 22, 32),  // 7: LightGray -> Lavender Slate (#6B5B82)
+            (8, 18, 14, 24),  // 8: DarkGray -> Deep Muted Plum (#4A3B60)
+            (9, 26, 22, 37),  // 9: LightBlue -> Soft Violet (#6C5B99)
+            (10, 11, 26, 20), // 10: LightGreen -> Muted Green (Success #2D6A4F)
+            (11, 30, 20, 41), // 11: LightCyan -> Medium Purple (Headings / INFO #7952A8)
+            (12, 34, 7, 5),   // 12: LightRed -> Readable Dark Red (Error #8A1C14)
+            (13, 39, 18, 30), // 13: Pink -> Soft Berry Rose (#A24D7A)
+            (14, 38, 13, 21), // 14: Yellow -> Soft Rose (Warnings #9B3356)
+            (15, 14, 9, 20),  // 15: White -> Normal text: Dark Plum (#38264F)
+        ];
+
+        for (idx, r, g, b) in palette {
+            dac_index.write(idx);
+            dac_data.write(r);
+            dac_data.write(g);
+            dac_data.write(b);
+        }
+
+        // Program legacy DAC mappings (20, 56..63) for hardware that bypasses ATC
+        dac_index.write(20);
+        dac_data.write(26);
+        dac_data.write(20);
+        dac_data.write(16);
+
+        for i in 8..=15u8 {
+            let legacy_dac = 48 + i;
+            let (_, r, g, b) = palette[i as usize];
+            dac_index.write(legacy_dac);
+            dac_data.write(r);
+            dac_data.write(g);
+            dac_data.write(b);
+        }
+    }
+}
+
+/// Initializes the VGA screen by programming the lavender palette and clearing it.
 pub fn init() {
+    init_lavender_palette();
     let mut writer = WRITER.lock();
     writer.set_color(Color::White, Color::Black);
     writer.clear_screen();

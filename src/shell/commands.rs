@@ -1,21 +1,26 @@
 //! Shell Command Parser, Dispatcher, and Built-in Command Handlers.
 
 use crate::console::read_line;
+use crate::console::vga::{self, Color};
 use crate::kprint;
 use crate::kprintln;
 
 /// Starts and runs the interactive shell loop.
 pub fn run_shell() -> ! {
     kprintln!();
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("========================================================");
     kprintln!("         MICRO-OS INTERACTIVE COMMAND SHELL             ");
     kprintln!("========================================================");
+    vga::set_color(Color::White, Color::Black);
     kprintln!("Type 'help' for available commands or 'run <program>'.");
     kprintln!();
 
     let mut line_buf = [0u8; 128];
     loop {
+        vga::set_color(Color::LightCyan, Color::Black);
         kprint!("micro-os> ");
+        vga::set_color(Color::White, Color::Black);
         let len = read_line(&mut line_buf);
         if len == 0 {
             continue;
@@ -45,14 +50,18 @@ pub fn dispatch_command(input: &str) {
         "trace" => cmd_trace(),
         "run" => cmd_run(args),
         _ => {
+            vga::set_color(Color::Yellow, Color::Black);
             kprintln!("Unknown command: '{}'. Type 'help' for a list of commands.", cmd);
+            vga::set_color(Color::White, Color::Black);
         }
     }
 }
 
 /// Handler for `help`: Displays all supported shell commands.
 fn cmd_help() {
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("Micro-OS Shell Commands:");
+    vga::set_color(Color::White, Color::Black);
     kprintln!("  help          - Display this help information");
     kprintln!("  clear         - Clear the screen buffer");
     kprintln!("  list          - List available Ring 3 user programs");
@@ -64,22 +73,30 @@ fn cmd_help() {
 
 /// Handler for `clear`: Clears the VGA text screen and serial console.
 fn cmd_clear() {
-    crate::console::vga::clear_screen();
+    vga::init_lavender_palette();
+    vga::clear_screen();
     crate::serial_print!("\x1b[2J\x1b[H");
 }
 
 /// Handler for `list`: Lists registered Ring 3 user programs.
 fn cmd_list() {
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("Available Ring 3 User Programs:");
+    vga::set_color(Color::White, Color::Black);
     let progs = crate::task::get_user_programs();
     for p in progs {
-        kprintln!("  {:8} - {}", p.name, p.description);
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprint!("  {:8}", p.name);
+        vga::set_color(Color::White, Color::Black);
+        kprintln!(" - {}", p.description);
     }
 }
 
 /// Handler for `tasks`: Displays kernel task manager table and process registry.
 fn cmd_tasks() {
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("=== Kernel Task Manager Registry ===");
+    vga::set_color(Color::White, Color::Black);
     let tm = crate::task::TASK_MANAGER.lock();
     kprintln!("Total registered tasks: {}", tm.count());
     kprintln!("TID  NAME           PRIORITY    STATE");
@@ -98,7 +115,9 @@ fn cmd_tasks() {
     drop(tm);
 
     kprintln!();
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("=== Process Registry ===");
+    vga::set_color(Color::White, Color::Black);
     let pr = crate::task::PROCESS_REGISTRY.lock();
     kprintln!("Active processes: {} / {}", pr.count, crate::task::MAX_PROCESSES);
     kprintln!("PID        NAME           STATE        THREADS");
@@ -118,7 +137,9 @@ fn cmd_tasks() {
 
 /// Handler for `mem`: Displays physical frame memory allocation metrics and recycling status.
 fn cmd_mem() {
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("=== Physical Memory Frame Statistics ===");
+    vga::set_color(Color::White, Color::Black);
     if let Some(stats) = crate::memory::get_memory_stats() {
         kprintln!("  Allocated frames:   {}", stats.allocated_frames);
         kprintln!("  Deallocated frames: {}", stats.deallocated_frames);
@@ -132,26 +153,41 @@ fn cmd_mem() {
 
 /// Handler for `trace`: Dumps the kernel diagnostics circular trace ring buffer.
 fn cmd_trace() {
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("=== Kernel Diagnostics Trace Buffer ===");
+    vga::set_color(Color::White, Color::Black);
     crate::kernel::diagnostics::TRACE_BUFFER.lock().dump();
 }
 
 /// Handler for `run <program>`: Loads and executes a user program in isolated Ring 3.
 fn cmd_run(args: &str) {
     if args.is_empty() {
+        vga::set_color(Color::Yellow, Color::Black);
         kprintln!("Usage: run <program>");
         kprintln!("Available programs: hello, counter, calc");
+        vga::set_color(Color::White, Color::Black);
         return;
     }
 
+    vga::set_color(Color::LightCyan, Color::Black);
     kprintln!("[SHELL] Launching user program '{}'...", args);
+    vga::set_color(Color::White, Color::Black);
     match crate::task::run_user_program(args) {
         Ok(code) => {
-            kprintln!("[SHELL] Program '{}' finished successfully with exit code {}.", args, code);
+            if code == 0 {
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!("[SHELL] Program '{}' finished successfully with exit code {}.", args, code);
+            } else {
+                vga::set_color(Color::Yellow, Color::Black);
+                kprintln!("[SHELL] Program '{}' finished with non-zero exit code {}.", args, code);
+            }
+            vga::set_color(Color::White, Color::Black);
         }
         Err(err) => {
+            vga::set_color(Color::LightRed, Color::Black);
             kprintln!("[SHELL] Failed to execute '{}': {}", args, err);
             kprintln!("Type 'list' to see available programs.");
+            vga::set_color(Color::White, Color::Black);
         }
     }
 }
