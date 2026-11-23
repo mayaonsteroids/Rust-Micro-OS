@@ -78,14 +78,15 @@ impl AudioEngine {
             PlaybackState::Paused => {
                 // Resume from paused position
                 self.state = PlaybackState::Playing;
+                let cur_freq = if self.note_idx < track.notes.len() {
+                    track.notes[self.note_idx].freq_hz
+                } else {
+                    0
+                };
                 if let Some(ref mut dev) = self.ac97 {
-                    dev.start();
+                    dev.start(cur_freq, self.volume);
                 }
-                // Play current note
-                if self.note_idx < track.notes.len() {
-                    let note = track.notes[self.note_idx];
-                    speaker::play_tone(note.freq_hz);
-                }
+                speaker::play_tone(cur_freq);
                 info!("[AUDIO] Resumed playback: '{}' at note {} (elapsed: {} ticks)",
                     track.title, self.note_idx, self.elapsed_ticks);
             }
@@ -96,12 +97,11 @@ impl AudioEngine {
                 self.ticks_in_note = 0;
                 self.elapsed_ticks = 0;
 
+                let cur_freq = track.notes.first().map(|n| n.freq_hz).unwrap_or(0);
                 if let Some(ref mut dev) = self.ac97 {
-                    dev.start();
+                    dev.start(cur_freq, self.volume);
                 }
-                if let Some(note) = track.notes.first() {
-                    speaker::play_tone(note.freq_hz);
-                }
+                speaker::play_tone(cur_freq);
                 info!("[AUDIO] Started playback: '{}' by {} ({} notes, {}s)",
                     track.title, track.artist, track.notes.len(), track.duration_seconds);
             }
@@ -218,8 +218,10 @@ impl AudioEngine {
                     if self.is_repeat {
                         self.note_idx = 0;
                         self.elapsed_ticks = 0;
-                        if let Some(first_note) = track.notes.first() {
-                            speaker::play_tone(first_note.freq_hz);
+                        let first_freq = track.notes.first().map(|n| n.freq_hz).unwrap_or(0);
+                        speaker::play_tone(first_freq);
+                        if let Some(ref mut dev) = self.ac97 {
+                            dev.tick(first_freq, self.volume);
                         }
                     } else {
                         self.next_track();
@@ -227,6 +229,14 @@ impl AudioEngine {
                 } else {
                     let next_note = track.notes[self.note_idx];
                     speaker::play_tone(next_note.freq_hz);
+                    if let Some(ref mut dev) = self.ac97 {
+                        dev.tick(next_note.freq_hz, self.volume);
+                    }
+                }
+            } else {
+                // Continue streaming active note tone into AC97 DMA ring
+                if let Some(ref mut dev) = self.ac97 {
+                    dev.tick(current_note.freq_hz, self.volume);
                 }
             }
         } else {
@@ -237,7 +247,7 @@ impl AudioEngine {
     /// Returns human-readable driver status string.
     pub fn driver_name(&self) -> &'static str {
         if self.ac97.is_some() {
-            "Intel ICH AC97 (00:05.0) + PC Speaker"
+            "Intel ICH AC97 (DMA 48kHz) + PC Speaker"
         } else {
             "PC Speaker Synthesizer (Universal)"
         }

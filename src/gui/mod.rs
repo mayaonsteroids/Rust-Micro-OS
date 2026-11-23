@@ -104,10 +104,21 @@ pub fn run_desktop() {
     x86_64::instructions::interrupts::enable();
 
     let mut last_render_tick = crate::timer::get_ticks();
+    let mut last_audio_tick = crate::timer::get_ticks();
 
     loop {
-        // 1. Advance audio playback tick
-        crate::audio::tick();
+        // 1. Advance audio playback tick with hardware timer ticks
+        let now_tick = crate::timer::get_ticks();
+        if now_tick != last_audio_tick {
+            let elapsed = (now_tick.saturating_sub(last_audio_tick)) as u32;
+            last_audio_tick = now_tick;
+            for _ in 0..elapsed.min(10) {
+                crate::audio::tick();
+            }
+        } else {
+            // Continuous polling tick to service AC97 DMA ring
+            crate::audio::tick();
+        }
 
         // 2. Poll for keyboard input (non-blocking)
         if let Some(key) = crate::console::try_read_byte() {
@@ -172,8 +183,10 @@ pub fn run_desktop() {
                 last_render_tick = current_tick;
             }
 
-            // Sleep CPU until next hardware interrupt (PIT timer tick @ 100 Hz or keyboard IRQ)
-            x86_64::instructions::hlt();
+            // High-frequency responsive spin loop ensuring immediate key delivery
+            for _ in 0..100 {
+                core::hint::spin_loop();
+            }
         }
     }
 

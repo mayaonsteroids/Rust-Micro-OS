@@ -23,37 +23,45 @@ impl MusicApp {
             b'p' | b'P' | b' ' => {
                 // Play / Pause toggle
                 match audio.state {
-                    PlaybackState::Playing => audio.pause(),
-                    PlaybackState::Paused | PlaybackState::Stopped => audio.play(),
+                    PlaybackState::Playing => {
+                        audio.pause();
+                        crate::info!("[MUSIC-KEY] 'P' -> Paused playback: '{}'", audio.current_track().title);
+                    }
+                    PlaybackState::Paused | PlaybackState::Stopped => {
+                        audio.play();
+                        crate::info!("[MUSIC-KEY] 'P' -> Started playback: '{}'", audio.current_track().title);
+                    }
                 }
             }
             b'n' | b'N' => {
-                // Next track
                 audio.next_track();
+                crate::info!("[MUSIC-KEY] 'N' -> Next track: '{}'", audio.current_track().title);
             }
             b'v' | b'V' | b'b' | b'B' => {
-                // Previous track
                 audio.prev_track();
+                crate::info!("[MUSIC-KEY] 'V' -> Prev track: '{}'", audio.current_track().title);
             }
             b'r' | b'R' => {
-                // Toggle repeat
-                audio.toggle_repeat();
+                let rep = audio.toggle_repeat();
+                crate::info!("[MUSIC-KEY] 'R' -> Repeat: {}", if rep { "ON" } else { "OFF" });
             }
             b'+' | b'=' => {
-                // Volume up
                 let new_vol = (audio.volume + 10).min(100);
                 audio.set_volume(new_vol);
+                crate::info!("[MUSIC-KEY] '+' -> Volume: {}%", new_vol);
             }
             b'-' | b'_' => {
-                // Volume down
                 let new_vol = audio.volume.saturating_sub(10);
                 audio.set_volume(new_vol);
+                crate::info!("[MUSIC-KEY] '-' -> Volume: {}%", new_vol);
             }
             b's' | b'S' => {
-                // Stop playback
                 audio.stop();
+                crate::info!("[MUSIC-KEY] 'S' -> Stopped playback");
             }
-            _ => {}
+            _ => {
+                crate::info!("[MUSIC-KEY] Unhandled key: 0x{:02x} ('{}')", key, key as char);
+            }
         }
     }
 

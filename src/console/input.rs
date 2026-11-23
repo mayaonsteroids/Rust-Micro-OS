@@ -173,6 +173,16 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
                         DecodedKey::RawKey(KeyCode::Escape) => {
                             KEY_BUFFER.lock().push(b'\x1b');
                         }
+                        DecodedKey::RawKey(KeyCode::Numpad1) => { KEY_BUFFER.lock().push(b'1'); }
+                        DecodedKey::RawKey(KeyCode::Numpad2) => { KEY_BUFFER.lock().push(b'2'); }
+                        DecodedKey::RawKey(KeyCode::Numpad3) => { KEY_BUFFER.lock().push(b'3'); }
+                        DecodedKey::RawKey(KeyCode::Numpad4) => { KEY_BUFFER.lock().push(b'4'); }
+                        DecodedKey::RawKey(KeyCode::Numpad5) => { KEY_BUFFER.lock().push(b'5'); }
+                        DecodedKey::RawKey(KeyCode::Numpad6) => { KEY_BUFFER.lock().push(b'6'); }
+                        DecodedKey::RawKey(KeyCode::Numpad7) => { KEY_BUFFER.lock().push(b'7'); }
+                        DecodedKey::RawKey(KeyCode::Numpad8) => { KEY_BUFFER.lock().push(b'8'); }
+                        DecodedKey::RawKey(KeyCode::NumpadAdd) => { KEY_BUFFER.lock().push(b'+'); }
+                        DecodedKey::RawKey(KeyCode::NumpadSubtract) => { KEY_BUFFER.lock().push(b'-'); }
                         _ => {}
                     }
                 }
@@ -232,41 +242,53 @@ pub fn try_read_byte() -> Option<u8> {
         }
     }
 
-    // 3. Fallback: Direct poll PS/2 Keyboard Controller if interrupt did not fire
-    let ps2_byte = x86_64::instructions::interrupts::without_interrupts(|| {
-        let mut status_port = Port::<u8>::new(0x64);
-        let status = unsafe { status_port.read() };
-        // Bit 0 = Output Buffer Full, Bit 5 = Not Mouse
-        if (status & 1) != 0 && (status & 0x20) == 0 {
-            let mut data_port = Port::<u8>::new(0x60);
-            let scancode = unsafe { data_port.read() };
-            let mut keyboard = KEYBOARD.lock();
-            if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-                if let Some(key) = keyboard.process_keyevent(key_event) {
-                    match key {
-                        DecodedKey::Unicode(c) => {
-                            if c == '\n' || c == '\r' {
-                                return Some(b'\n');
-                            } else if c == '\x08' {
-                                return Some(b'\x08');
-                            } else if c.is_ascii() {
-                                return Some(c as u8);
+    // 3. Fallback: Direct poll PS/2 Keyboard Controller ONLY when CPU interrupts are disabled
+    if !x86_64::instructions::interrupts::are_enabled() {
+        let ps2_byte = x86_64::instructions::interrupts::without_interrupts(|| {
+            let mut status_port = Port::<u8>::new(0x64);
+            let status = unsafe { status_port.read() };
+            // Bit 0 = Output Buffer Full, Bit 5 = Not Mouse
+            if (status & 1) != 0 && (status & 0x20) == 0 {
+                let mut data_port = Port::<u8>::new(0x60);
+                let scancode = unsafe { data_port.read() };
+                let mut keyboard = KEYBOARD.lock();
+                if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
+                    if let Some(key) = keyboard.process_keyevent(key_event) {
+                        match key {
+                            DecodedKey::Unicode(c) => {
+                                if c == '\n' || c == '\r' {
+                                    return Some(b'\n');
+                                } else if c == '\x08' {
+                                    return Some(b'\x08');
+                                } else if c.is_ascii() {
+                                    return Some(c as u8);
+                                }
                             }
+                            DecodedKey::RawKey(KeyCode::Backspace) => return Some(b'\x08'),
+                            DecodedKey::RawKey(KeyCode::Return) => return Some(b'\n'),
+                            DecodedKey::RawKey(KeyCode::Escape) => return Some(b'\x1b'),
+                            DecodedKey::RawKey(KeyCode::Numpad1) => return Some(b'1'),
+                            DecodedKey::RawKey(KeyCode::Numpad2) => return Some(b'2'),
+                            DecodedKey::RawKey(KeyCode::Numpad3) => return Some(b'3'),
+                            DecodedKey::RawKey(KeyCode::Numpad4) => return Some(b'4'),
+                            DecodedKey::RawKey(KeyCode::Numpad5) => return Some(b'5'),
+                            DecodedKey::RawKey(KeyCode::Numpad6) => return Some(b'6'),
+                            DecodedKey::RawKey(KeyCode::Numpad7) => return Some(b'7'),
+                            DecodedKey::RawKey(KeyCode::Numpad8) => return Some(b'8'),
+                            DecodedKey::RawKey(KeyCode::NumpadAdd) => return Some(b'+'),
+                            DecodedKey::RawKey(KeyCode::NumpadSubtract) => return Some(b'-'),
+                            _ => {}
                         }
-                        DecodedKey::RawKey(KeyCode::Backspace) => return Some(b'\x08'),
-                        DecodedKey::RawKey(KeyCode::Return) => return Some(b'\n'),
-                        DecodedKey::RawKey(KeyCode::Escape) => return Some(b'\x1b'),
-                        _ => {}
                     }
                 }
             }
-        }
-        None
-    });
+            None
+        });
 
-    if let Some(b) = ps2_byte {
-        if let Some(filtered) = filter_input(b) {
-            return Some(filtered);
+        if let Some(b) = ps2_byte {
+            if let Some(filtered) = filter_input(b) {
+                return Some(filtered);
+            }
         }
     }
 
