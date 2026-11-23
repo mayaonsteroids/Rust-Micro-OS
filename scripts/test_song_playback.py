@@ -107,7 +107,8 @@ def main():
         # 4. Stream Audio for 1.5 Seconds and Poll Progress
         print("[*] Allowing DMA streaming across descriptor boundaries for 1.5s...")
         time.sleep(1.5)
-        out_prog = send_cmd("audio status\n", wait_for="Mayiiiii")
+        out_prog = send_cmd("audio status\n", wait_for="Repeat:")
+        read_until("micro-os> ", timeout=2.0)
         prog_ok = "Mayiiiii" in out_prog
         record_test("4. Continuous DMA Streaming Active", prog_ok, "DMA controller active with uninterrupted ring buffer refills")
 

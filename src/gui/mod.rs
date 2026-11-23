@@ -84,6 +84,14 @@ impl Desktop {
 
     /// Renders the current desktop state into the compositor and flushes to VGA.
     pub fn render(&mut self) {
+        // 1. If graphical framebuffer is active (BGA 1024x768x32), render truecolor pixel GUI
+        if crate::graphics::is_active() {
+            crate::graphics::with_framebuffer(|fb| {
+                self.render_pixel(fb);
+            });
+        }
+
+        // 2. Also update compositor and VGA buffer for 100% regression compatibility
         let mut comp = COMPOSITOR.lock();
 
         // 1. Draw Left Application Dock (columns 0..11)
@@ -112,6 +120,129 @@ impl Desktop {
 
         // 3. Atomic Present to VGA Text Buffer 0xb8000
         comp.present();
+    }
+
+    /// Renders the pixel-based desktop into the 1024x768 Framebuffer.
+    pub fn render_pixel(&mut self, fb: &mut crate::graphics::Framebuffer) {
+        use crate::graphics::theme;
+
+        // 1. Clear Desktop Workspace with Light Lavender (#E9DFFF)
+        fb.clear(theme::DESKTOP_BG);
+
+        // 2. Draw Left Application Dock (x = 0..88, y = 0..768)
+        dock::draw_pixel_dock(fb, self.active_app);
+
+        // 3. Either Draw Active Application Window or Desktop Home Screen Dashboard
+        if self.is_window_open {
+            let window = Window::standard(self.active_app.window_title());
+            window.draw_pixel_frame(fb, true);
+
+            // Render Active Application Content inside pixel window
+            match self.active_app {
+                AppId::Terminal => self.terminal.draw_pixel(&window, fb),
+                AppId::Network => self.network.draw_pixel(&window, fb),
+                AppId::Browser => self.browser.draw_pixel(&window, fb),
+                AppId::Files => self.files.draw_pixel(&window, fb),
+                AppId::Music => self.music.draw_pixel(&window, fb),
+                AppId::SysMon => self.sysmon.draw_pixel(&window, fb),
+                AppId::Settings => self.settings.draw_pixel(&window, fb),
+                AppId::About => self.about.draw_pixel(&window, fb),
+            }
+        } else {
+            // Draw Clean Light Lavender Wallpaper & Home Screen Dashboard
+            self.draw_pixel_home_screen(fb);
+        }
+    }
+
+    /// Draws the default Desktop Home Screen with Light Lavender wallpaper and dashboard card.
+    fn draw_pixel_home_screen(&self, fb: &mut crate::graphics::Framebuffer) {
+        use crate::graphics::{draw, font, theme, Color};
+        use crate::graphics::image::AppIcon;
+
+        // Top Status Header Bar (x = 104, y = 16, w = 904, h = 40)
+        let top_x = 104;
+        let top_y = 16;
+        let top_w = 904;
+        let top_h = 40;
+
+        draw::draw_shadow(fb, top_x, top_y, top_w, top_h, 6);
+        draw::fill_rounded_rect(fb, top_x, top_y, top_w, top_h, 6, theme::WINDOW_SURFACE);
+        draw::draw_rounded_rect(fb, top_x, top_y, top_w, top_h, 6, theme::BORDER_LIGHT);
+
+        font::draw_string(fb, top_x + 16, top_y + 12, "RUST MICRO-OS", theme::PRIMARY_PURPLE, theme::WINDOW_SURFACE);
+        font::draw_string(fb, top_x + 130, top_y + 12, "|   Desktop Environment   |   User: maya   |   Kernel: x86_64 Long Mode", theme::DARK_PLUM_TEXT, theme::WINDOW_SURFACE);
+        font::draw_string(fb, top_x + top_w - 180, top_y + 12, "[Light Lavender Theme]", theme::PRIMARY_PURPLE, theme::WINDOW_SURFACE);
+
+        // Central Welcome & Application Dashboard Card (x = 136, y = 72, w = 840, h = 668)
+        let cx = 136;
+        let cy = 72;
+        let cw = 840;
+        let ch = 668;
+
+        draw::draw_shadow(fb, cx, cy, cw, ch, 8);
+        draw::fill_rounded_rect(fb, cx, cy, cw, ch, 8, theme::WINDOW_SURFACE);
+        draw::draw_rounded_rect(fb, cx, cy, cw, ch, 8, theme::BORDER_LIGHT);
+
+        // Header Banner inside Card
+        draw::fill_rounded_rect(fb, cx + 1, cy + 1, cw - 2, 60, 7, theme::DEEP_PURPLE);
+        fb.fill_rect(cx + 1, cy + 30, cw - 2, 32, theme::DEEP_PURPLE);
+
+        font::draw_string_scaled(fb, cx + 24, cy + 12, "WELCOME TO RUST MICRO-OS", theme::WHITE, 2);
+        font::draw_string(fb, cx + 24, cy + 42, "Light Lavender Desktop Environment - Click any icon or press [1-8] to launch", Color::rgb(225, 210, 248), theme::DEEP_PURPLE);
+
+        // 8 Application Quick-Launch Tiles (2 columns x 4 rows)
+        let col_w = 380;
+        let tile_h = 100;
+        let col0_x = cx + 24;
+        let col1_x = cx + cw - 24 - col_w;
+
+        let app_descriptions = [
+            ("Terminal", "Interactive shell prompt, whoami, wifi diagnostics", "[1]"),
+            ("Network", "Connection & Wi-Fi Control Center, E1000 Gigabit", "[2]"),
+            ("Browser", "Single-Tab HTTP/1.1 Web Client, URL navigation", "[3]"),
+            ("Files", "UFS Directory & File Explorer, virtual RamFS", "[4]"),
+            ("Music Player", "Spotify-inspired 48 kHz AC97 DMA song player", "[5]"),
+            ("System Monitor", "CPU, PIT timer, 256 KiB heap & task manager", "[6]"),
+            ("Settings", "Display theme, PS/2 controller, audio setup", "[7]"),
+            ("About", "OS identity, verified user maya, x86_64 specs", "[8]"),
+        ];
+
+        for (i, app) in AppId::ALL.iter().enumerate() {
+            let col = i % 2;
+            let row = i / 2;
+            let tile_x = if col == 0 { col0_x } else { col1_x };
+            let tile_y = cy + 76 + row * 114;
+
+            let is_selected = *app == self.active_app;
+
+            // Tile background
+            let tile_bg = if is_selected { Color::rgb(245, 238, 255) } else { theme::WHITE };
+            let tile_border = if is_selected { theme::PRIMARY_PURPLE } else { theme::BORDER_LIGHT };
+
+            draw::fill_rounded_rect(fb, tile_x, tile_y, col_w, tile_h, 6, tile_bg);
+            draw::draw_rounded_rect(fb, tile_x, tile_y, col_w, tile_h, 6, tile_border);
+
+            // App Icon
+            let icon = AppIcon::new(*app);
+            icon.draw(fb, tile_x + 16, tile_y + 16, is_selected);
+
+            // Title & Shortcut
+            let (title, desc, shortcut) = app_descriptions[i];
+            font::draw_string(fb, tile_x + 60, tile_y + 16, shortcut, theme::PRIMARY_PURPLE, tile_bg);
+            font::draw_string(fb, tile_x + 88, tile_y + 16, title, theme::DEEP_PURPLE, tile_bg);
+
+            // Description
+            font::draw_string(fb, tile_x + 60, tile_y + 40, desc, theme::DARK_PLUM_TEXT, tile_bg);
+
+            // Launch hint pill
+            let pill_text = if is_selected { "Selected (Enter)" } else { "Click / Press" };
+            let pill_color = if is_selected { Color::rgb(35, 140, 70) } else { Color::rgb(130, 115, 150) };
+            font::draw_string(fb, tile_x + 60, tile_y + 68, pill_text, pill_color, tile_bg);
+        }
+
+        // Bottom Navigation Tips
+        let nav_y = cy + ch - 34;
+        font::draw_string(fb, cx + 48, nav_y, "Navigation: [1-8] Launch App  |  [Tab] Cycle Selection  |  [Enter] Open Window  |  [Esc] Minimize Window", theme::DARK_PLUM_TEXT, theme::WINDOW_SURFACE);
     }
 
     /// Draws the default Desktop Home Screen with Light Lavender wallpaper and dashboard card.

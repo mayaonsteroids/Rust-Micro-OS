@@ -288,4 +288,64 @@ impl TerminalApp {
             Color::Black,
         );
     }
+
+    /// Renders the pixel-based terminal into the window client area.
+    pub fn draw_pixel(&self, _window: &Window, fb: &mut crate::graphics::Framebuffer) {
+        use crate::graphics::{draw, font, theme, Color};
+
+        let cx = Window::CLIENT_PIXEL_X;
+        let cy = Window::CLIENT_PIXEL_Y;
+        let cw = Window::CLIENT_PIXEL_WIDTH;
+        let ch = Window::CLIENT_PIXEL_HEIGHT;
+
+        // Terminal dark background
+        let term_bg = Color::rgb(22, 16, 32);
+        draw::fill_rounded_rect(fb, cx, cy, cw, ch, 4, term_bg);
+
+        // Terminal inner border
+        draw::draw_rounded_rect(fb, cx, cy, cw, ch, 4, Color::rgb(60, 45, 80));
+
+        // Terminal sub-header tab
+        let tab_bg = Color::rgb(35, 26, 50);
+        fb.fill_rect(cx + 2, cy + 2, cw - 4, 28, tab_bg);
+        font::draw_string(fb, cx + 16, cy + 8, "[maya@micro-os: ~] (Interactive Shell - Long Mode)", Color::rgb(180, 160, 210), tab_bg);
+        draw::draw_hline(fb, cx + 2, cx + cw - 2, cy + 30, Color::rgb(70, 52, 95));
+
+        // Visible lines rendering
+        let text_start_y = cy + 40;
+        let max_visible_lines = (ch.saturating_sub(80)) / 20;
+
+        let start_line = if self.line_count > max_visible_lines {
+            self.line_count - max_visible_lines
+        } else {
+            0
+        };
+
+        for (row_idx, line_idx) in (start_line..self.line_count).enumerate() {
+            let line = &self.lines[line_idx];
+            let y_pos = text_start_y + row_idx * 20;
+            let text_color = match line.fg {
+                crate::console::vga::Color::LightCyan => Color::rgb(120, 215, 255),
+                crate::console::vga::Color::LightGreen => Color::rgb(100, 230, 140),
+                crate::console::vga::Color::LightRed => Color::rgb(255, 110, 110),
+                crate::console::vga::Color::Yellow => Color::rgb(255, 220, 100),
+                crate::console::vga::Color::DarkGray => Color::rgb(145, 135, 165),
+                _ => Color::rgb(240, 235, 250),
+            };
+            font::draw_string(fb, cx + 16, y_pos, line.as_str(), text_color, term_bg);
+        }
+
+        // Prompt line
+        let prompt_y = text_start_y + (self.line_count - start_line) * 20;
+        if prompt_y + 20 < cy + ch {
+            font::draw_string(fb, cx + 16, prompt_y, "micro-os> ", Color::rgb(100, 220, 255), term_bg);
+
+            let input_str = core::str::from_utf8(&self.input_buf[..self.input_len]).unwrap_or("");
+            font::draw_string(fb, cx + 16 + 80, prompt_y, input_str, theme::WHITE, term_bg);
+
+            // Cursor block
+            let cursor_x = cx + 16 + 80 + self.input_len * 8;
+            fb.fill_rect(cursor_x, prompt_y + 2, 8, 14, Color::rgb(100, 220, 255));
+        }
+    }
 }

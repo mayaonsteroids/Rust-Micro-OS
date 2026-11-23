@@ -209,3 +209,50 @@ pub fn draw_dock(compositor: &mut Compositor, active_app: AppId) {
     // Row 24: Navigation hints
     compositor.draw_string(0, 24, " [1-8/Tab] ", Color::LightCyan, Color::Black);
 }
+
+/// Renders the pixel-based Left Application Dock into the Framebuffer.
+pub fn draw_pixel_dock(fb: &mut crate::graphics::Framebuffer, active_app: AppId) {
+    use crate::graphics::{draw, font, theme, Color};
+    use crate::graphics::image::AppIcon;
+
+    let dock_w = 88;
+    let dock_h = 768;
+
+    // 1. Dock Background Surface (Soft Lavender #E6DEF6)
+    let dock_bg = Color::rgb(230, 222, 246);
+    fb.fill_rect(0, 0, dock_w, dock_h, dock_bg);
+
+    // 2. Vertical Divider Line at right edge
+    draw::draw_vline(fb, dock_w - 2, 0, dock_h, theme::BORDER_LIGHT);
+    draw::draw_vline(fb, dock_w - 1, 0, dock_h, Color::rgb(245, 240, 255));
+
+    // 3. Top System Emblem / Logo
+    font::draw_string(fb, 24, 12, "MICRO", theme::PRIMARY_PURPLE, dock_bg);
+
+    // 4. Render 8 Application Icons
+    for (i, app) in AppId::ALL.iter().enumerate() {
+        let is_selected = *app == active_app;
+        let y_pos = 36 + i * 86; // 8 items evenly spaced in 768 height
+
+        // If selected: Draw active pill indicator on left edge
+        if is_selected {
+            draw::fill_rounded_rect(fb, 2, y_pos + 6, 4, 40, 2, theme::PRIMARY_PURPLE);
+        }
+
+        // Draw the 32x32 genuine bitmap icon inside a 48x48 tile
+        let icon_tile_x = 20;
+        let icon_tile_y = y_pos;
+        let icon = AppIcon::new(*app);
+        icon.draw(fb, icon_tile_x, icon_tile_y, is_selected);
+
+        // App Label centered below tile
+        let label = app.dock_label();
+        let text_w = label.len() * 8;
+        let label_x = (dock_w.saturating_sub(text_w)) / 2;
+        let label_fg = if is_selected { theme::PRIMARY_PURPLE } else { theme::DARK_PLUM_TEXT };
+        font::draw_string(fb, label_x, y_pos + 56, label, label_fg, dock_bg);
+    }
+
+    // 5. Bottom Shortcut Hint
+    font::draw_string(fb, 8, 740, "[1-8/Tab]", theme::DARK_PLUM_TEXT, dock_bg);
+}

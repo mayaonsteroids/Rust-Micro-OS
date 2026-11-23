@@ -434,6 +434,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let _ = rust_micro_os::net::init();
     rust_micro_os::audio::init();
 
+    // Priority Graphical Desktop: Initialize 1024x768 Truecolor Framebuffer
+    rust_micro_os::graphics::init();
+
     // Initialize PS/2 Keyboard Controller for interactive input
     rust_micro_os::console::input::init();
     let _ = rust_micro_os::console::input::tests::run_keyboard_unit_tests();

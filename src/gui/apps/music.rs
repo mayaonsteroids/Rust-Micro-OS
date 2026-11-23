@@ -214,6 +214,219 @@ impl MusicApp {
 
         compositor.draw_string(cx + 4, cy + 19, "Hotkeys: [P/Space] Play/Pause | [N] Next | [V] Prev | [+/-] Vol | [R] Rep", Color::LightGray, Color::Black);
     }
+
+    /// Renders the Spotify-inspired pixel-based music player into the window client area.
+    pub fn draw_pixel(&self, _window: &Window, fb: &mut crate::graphics::Framebuffer) {
+        use crate::graphics::{draw, font, theme, Color};
+
+        let cx = Window::CLIENT_PIXEL_X;
+        let cy = Window::CLIENT_PIXEL_Y;
+        let cw = Window::CLIENT_PIXEL_WIDTH;
+        let ch = Window::CLIENT_PIXEL_HEIGHT;
+
+        // Dark Spotify-like background surface (#161022)
+        let music_bg = Color::rgb(22, 16, 34);
+        draw::fill_rounded_rect(fb, cx, cy, cw, ch, 4, music_bg);
+        draw::draw_rounded_rect(fb, cx, cy, cw, ch, 4, Color::rgb(55, 40, 75));
+
+        let audio = AUDIO_ENGINE.lock();
+        let track = audio.current_track();
+        let state = audio.state;
+        let percent = audio.progress_percent();
+        let volume = audio.volume;
+        let is_repeat = audio.is_repeat;
+        let driver_name = audio.driver_name();
+        let elapsed_sec = audio.elapsed_seconds();
+        let total_sec = track.duration_seconds as u32;
+
+        // 1. Album Artwork Tile (x = cx + 24, y = cy + 24, w = 180, h = 180)
+        let art_x = cx + 24;
+        let art_y = cy + 24;
+        let art_w = 180;
+        let art_h = 180;
+
+        draw::draw_shadow(fb, art_x, art_y, art_w, art_h, 8);
+        let art_bg = match state {
+            PlaybackState::Playing => Color::rgb(70, 35, 110),
+            PlaybackState::Paused => Color::rgb(80, 60, 40),
+            PlaybackState::Stopped => Color::rgb(45, 35, 60),
+        };
+        draw::fill_rounded_rect(fb, art_x, art_y, art_w, art_h, 8, art_bg);
+        draw::draw_rounded_rect(fb, art_x, art_y, art_w, art_h, 8, theme::PRIMARY_PURPLE);
+
+        // Concentric Vinyl Record Rings inside Artwork
+        let center_x = (art_x + art_w / 2) as isize;
+        let center_y = (art_y + art_h / 2) as isize;
+        for ring_offset in (10..60).step_by(10) {
+            draw::draw_rounded_rect(
+                fb,
+                (center_x - ring_offset) as usize,
+                (center_y - ring_offset) as usize,
+                (ring_offset * 2) as usize,
+                (ring_offset * 2) as usize,
+                ring_offset as usize,
+                Color::rgb(105, 65, 155),
+            );
+        }
+        // Center Spindle
+        draw::fill_rounded_rect(fb, (center_x - 14) as usize, (center_y - 14) as usize, 28, 28, 14, Color::rgb(220, 180, 255));
+        draw::fill_rounded_rect(fb, (center_x - 6) as usize, (center_y - 6) as usize, 12, 12, 6, Color::rgb(30, 20, 45));
+
+        font::draw_string(fb, art_x + 50, art_y + 154, "MAYIIIII", theme::WHITE, art_bg);
+
+        // 2. Track Metadata & Status Badges (x = art_x + art_w + 32)
+        let meta_x = art_x + art_w + 32;
+        let meta_y = cy + 28;
+
+        font::draw_string(fb, meta_x, meta_y, "CURRENTLY PLAYING", Color::rgb(160, 145, 185), music_bg);
+        font::draw_string_scaled(fb, meta_x, meta_y + 20, track.title, theme::WHITE, 2);
+
+        font::draw_string(fb, meta_x, meta_y + 60, "Artist:  ", Color::rgb(160, 145, 185), music_bg);
+        font::draw_string(fb, meta_x + 80, meta_y + 60, track.artist, Color::rgb(220, 205, 245), music_bg);
+
+        font::draw_string(fb, meta_x, meta_y + 84, "Album:   ", Color::rgb(160, 145, 185), music_bg);
+        font::draw_string(fb, meta_x + 80, meta_y + 84, track.album, Color::rgb(200, 185, 230), music_bg);
+
+        font::draw_string(fb, meta_x, meta_y + 108, "Audio:   ", Color::rgb(160, 145, 185), music_bg);
+        font::draw_string(fb, meta_x + 80, meta_y + 108, driver_name, Color::rgb(100, 220, 140), music_bg);
+
+        // Status Badge Pill
+        let badge_y = meta_y + 136;
+        match state {
+            PlaybackState::Playing => {
+                draw::fill_rounded_rect(fb, meta_x, badge_y, 140, 28, 14, Color::rgb(35, 120, 65));
+                font::draw_string(fb, meta_x + 16, badge_y + 6, "> PLAYING", theme::WHITE, Color::rgb(35, 120, 65));
+            }
+            PlaybackState::Paused => {
+                draw::fill_rounded_rect(fb, meta_x, badge_y, 140, 28, 14, Color::rgb(150, 110, 25));
+                font::draw_string(fb, meta_x + 16, badge_y + 6, "|| PAUSED", theme::WHITE, Color::rgb(150, 110, 25));
+            }
+            PlaybackState::Stopped => {
+                draw::fill_rounded_rect(fb, meta_x, badge_y, 140, 28, 14, Color::rgb(70, 60, 85));
+                font::draw_string(fb, meta_x + 16, badge_y + 6, "[] STOPPED", theme::WHITE, Color::rgb(70, 60, 85));
+            }
+        }
+
+        // Format times
+        let mut time_buf = [0u8; 16];
+        let time_str = format_time(elapsed_sec, total_sec, &mut time_buf);
+        font::draw_string(fb, meta_x + 160, badge_y + 6, time_str, Color::rgb(220, 210, 240), music_bg);
+
+        // 3. Playlist Card (x = cx + 24, y = cy + 224, w = cw - 48, h = 180)
+        let pl_y = cy + 224;
+        let pl_w = cw - 48;
+        let pl_h = 180;
+        draw::fill_rounded_rect(fb, cx + 24, pl_y, pl_w, pl_h, 6, Color::rgb(30, 22, 45));
+        draw::draw_rounded_rect(fb, cx + 24, pl_y, pl_w, pl_h, 6, Color::rgb(65, 48, 88));
+
+        font::draw_string(fb, cx + 40, pl_y + 12, "PLAYLIST  |  FEATURED AUDIO TRACK & CHIPTUNE SCORES", theme::PRIMARY_PURPLE, Color::rgb(30, 22, 45));
+        draw::draw_hline(fb, cx + 24, cx + 24 + pl_w, pl_y + 34, Color::rgb(65, 48, 88));
+
+        for (i, p_track) in PLAYLIST.iter().enumerate() {
+            let row_y = pl_y + 44 + i * 38;
+            let is_curr = i == audio.current_track_idx;
+            if is_curr {
+                draw::fill_rounded_rect(fb, cx + 32, row_y - 4, pl_w - 16, 32, 4, Color::rgb(55, 38, 80));
+                draw::fill_rounded_rect(fb, cx + 32, row_y - 2, 4, 28, 2, theme::PRIMARY_PURPLE);
+            }
+
+            let marker = if is_curr { "> " } else { "  " };
+            let fg = if is_curr {
+                match state {
+                    PlaybackState::Playing => Color::rgb(100, 230, 140),
+                    PlaybackState::Paused => Color::rgb(255, 210, 80),
+                    PlaybackState::Stopped => Color::rgb(180, 160, 220),
+                }
+            } else {
+                Color::rgb(200, 190, 220)
+            };
+
+            let status_badge = if is_curr {
+                match state {
+                    PlaybackState::Playing => " [PLAYING]",
+                    PlaybackState::Paused =>  " [PAUSED] ",
+                    PlaybackState::Stopped => " [STOPPED]",
+                }
+            } else {
+                ""
+            };
+
+            let mut track_line = [b' '; 56];
+            let prefix = format_track_line(i + 1, marker, p_track.title, p_track.artist, p_track.duration_seconds, status_badge, &mut track_line);
+            font::draw_string(fb, cx + 44, row_y + 4, prefix, fg, if is_curr { Color::rgb(55, 38, 80) } else { Color::rgb(30, 22, 45) });
+        }
+
+        // 4. Player Controls, Live Progress Bar & Sliders
+        let ctrl_y = cy + 424;
+
+        // Live Progress Bar (Full Width)
+        let prog_x = cx + 32;
+        let prog_w = cw - 64;
+        let prog_h = 10;
+        let bar_y = ctrl_y + 16;
+
+        let mut elapsed_buf = [0u8; 8];
+        let mut total_buf = [0u8; 8];
+        let e_str = format_seconds(elapsed_sec, &mut elapsed_buf);
+        let t_str = format_seconds(total_sec, &mut total_buf);
+
+        font::draw_string(fb, prog_x, bar_y - 2, e_str, Color::rgb(160, 145, 185), music_bg);
+        font::draw_string(fb, prog_x + prog_w - 40, bar_y - 2, t_str, Color::rgb(160, 145, 185), music_bg);
+
+        let actual_bar_x = prog_x + 50;
+        let actual_bar_w = prog_w.saturating_sub(100);
+
+        // Progress bar background track
+        draw::fill_rounded_rect(fb, actual_bar_x, bar_y + 2, actual_bar_w, prog_h, 5, Color::rgb(45, 35, 65));
+
+        // Filled progress bar
+        let filled_px = ((percent as usize * actual_bar_w) / 100).min(actual_bar_w);
+        if filled_px > 0 {
+            let fill_color = match state {
+                PlaybackState::Playing => Color::rgb(130, 85, 210),
+                PlaybackState::Paused => Color::rgb(180, 130, 50),
+                PlaybackState::Stopped => Color::rgb(90, 75, 115),
+            };
+            draw::fill_rounded_rect(fb, actual_bar_x, bar_y + 2, filled_px, prog_h, 5, fill_color);
+            // Thumb knob
+            let thumb_x = actual_bar_x + filled_px;
+            draw::fill_rounded_rect(fb, thumb_x.saturating_sub(6), bar_y - 1, 12, 16, 6, theme::WHITE);
+        }
+
+        // Playback Control Buttons (Centered)
+        let btn_row_y = bar_y + 36;
+        let mid_x = cx + cw / 2;
+
+        draw::draw_button(fb, mid_x - 180, btn_row_y, 100, 36, "<< Prev", false, false);
+
+        let (play_label, play_primary) = match state {
+            PlaybackState::Playing => ("|| Pause", true),
+            PlaybackState::Paused =>  ("> Resume", true),
+            PlaybackState::Stopped => ("> Play", true),
+        };
+        draw::draw_button(fb, mid_x - 60, btn_row_y - 3, 120, 42, play_label, true, play_primary);
+
+        draw::draw_button(fb, mid_x + 80, btn_row_y, 100, 36, "Next >>", false, false);
+
+        let rep_str = if is_repeat { "Repeat: ON" } else { "Repeat: OFF" };
+        draw::draw_button(fb, mid_x + 200, btn_row_y, 120, 36, rep_str, false, is_repeat);
+
+        // Volume Bar
+        let vol_y = btn_row_y + 58;
+        let vol_x = mid_x - 150;
+        font::draw_string(fb, vol_x - 60, vol_y + 2, "Vol:", Color::rgb(160, 145, 185), music_bg);
+        draw::fill_rounded_rect(fb, vol_x, vol_y + 4, 200, 8, 4, Color::rgb(45, 35, 65));
+        let vol_fill = ((volume as usize * 200) / 100).min(200);
+        if vol_fill > 0 {
+            draw::fill_rounded_rect(fb, vol_x, vol_y + 4, vol_fill, 8, 4, theme::PRIMARY_PURPLE);
+        }
+        let mut vol_buf = [0u8; 16];
+        let vol_str = format_volume(volume, &mut vol_buf);
+        font::draw_string(fb, vol_x + 215, vol_y + 2, vol_str, Color::rgb(220, 210, 240), music_bg);
+
+        // Bottom Hotkey Instructions
+        font::draw_string(fb, cx + 40, cy + ch - 28, "Controls: [P/Space] Play/Pause | [N] Next | [V] Prev | [+/-] Volume | [R] Repeat | [Esc] Minimize", Color::rgb(140, 125, 165), music_bg);
+    }
 }
 
 fn format_seconds<'a>(sec: u32, buf: &'a mut [u8; 8]) -> &'a str {

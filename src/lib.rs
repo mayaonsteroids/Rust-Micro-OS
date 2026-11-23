@@ -8,6 +8,7 @@ extern crate alloc;
 pub mod audio;
 pub mod browser;
 pub mod console;
+pub mod graphics;
 pub mod gui;
 pub mod interrupts;
 pub mod kernel;

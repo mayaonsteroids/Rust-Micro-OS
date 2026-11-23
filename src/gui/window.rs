@@ -121,4 +121,78 @@ impl Window {
         }
         compositor.put_char(self.x + self.width - 1, bottom_row, glyphs::DBL_BOTTOM_RIGHT, border_fg, win_bg);
     }
+
+    // --- 1024x768 Graphical Pixel Window Geometry & Rendering ---
+
+    pub const PIXEL_X: usize = 104;
+    pub const PIXEL_Y: usize = 20;
+    pub const PIXEL_WIDTH: usize = 904;
+    pub const PIXEL_HEIGHT: usize = 728;
+
+    pub const CLIENT_PIXEL_X: usize = 112;
+    pub const CLIENT_PIXEL_Y: usize = 64;
+    pub const CLIENT_PIXEL_WIDTH: usize = 888;
+    pub const CLIENT_PIXEL_HEIGHT: usize = 676;
+
+    /// Renders the pixel-based window frame with drop shadow, purple title bar,
+    /// title text, and minimize/close buttons.
+    pub fn draw_pixel_frame(&self, fb: &mut crate::graphics::Framebuffer, is_active: bool) {
+        use crate::graphics::{draw, font, theme, Color};
+
+        // 1. Window Drop Shadow
+        draw::draw_shadow(fb, Self::PIXEL_X, Self::PIXEL_Y, Self::PIXEL_WIDTH, Self::PIXEL_HEIGHT, 8);
+
+        // 2. Window Surface Background (Light Window Surface #F8F5FF)
+        draw::fill_rounded_rect(
+            fb,
+            Self::PIXEL_X,
+            Self::PIXEL_Y,
+            Self::PIXEL_WIDTH,
+            Self::PIXEL_HEIGHT,
+            6,
+            theme::WINDOW_SURFACE,
+        );
+
+        // 3. Window Border Outline
+        let border_color = if is_active { theme::PRIMARY_PURPLE } else { theme::BORDER_LIGHT };
+        draw::draw_rounded_rect(
+            fb,
+            Self::PIXEL_X,
+            Self::PIXEL_Y,
+            Self::PIXEL_WIDTH,
+            Self::PIXEL_HEIGHT,
+            6,
+            border_color,
+        );
+
+        // 4. Purple Title Bar (Height = 36 px)
+        let title_bg = if is_active { theme::DEEP_PURPLE } else { theme::PRIMARY_PURPLE };
+        draw::fill_rounded_rect(
+            fb,
+            Self::PIXEL_X + 1,
+            Self::PIXEL_Y + 1,
+            Self::PIXEL_WIDTH - 2,
+            36,
+            5,
+            title_bg,
+        );
+        // Square off bottom corners of title bar
+        fb.fill_rect(Self::PIXEL_X + 1, Self::PIXEL_Y + 18, Self::PIXEL_WIDTH - 2, 19, title_bg);
+
+        // 5. Title Text (White, Crisp 8x16 font)
+        font::draw_string(fb, Self::PIXEL_X + 16, Self::PIXEL_Y + 10, self.title, theme::WHITE, title_bg);
+
+        // 6. Minimize Button [-] (Amber/Yellow Circle)
+        let min_x = Self::PIXEL_X + Self::PIXEL_WIDTH - 64;
+        let min_y = Self::PIXEL_Y + 8;
+        draw::fill_rounded_rect(fb, min_x, min_y, 20, 20, 10, Color::rgb(241, 196, 15));
+        fb.fill_rect(min_x + 5, min_y + 9, 10, 2, Color::rgb(80, 50, 0));
+
+        // 7. Close Button [X] (Red Circle with white X)
+        let close_x = Self::PIXEL_X + Self::PIXEL_WIDTH - 34;
+        let close_y = Self::PIXEL_Y + 8;
+        draw::fill_rounded_rect(fb, close_x, close_y, 20, 20, 10, Color::rgb(231, 76, 60));
+        draw::draw_line(fb, (close_x + 6) as isize, (close_y + 6) as isize, (close_x + 13) as isize, (close_y + 13) as isize, theme::WHITE);
+        draw::draw_line(fb, (close_x + 13) as isize, (close_y + 6) as isize, (close_x + 6) as isize, (close_y + 13) as isize, theme::WHITE);
+    }
 }
