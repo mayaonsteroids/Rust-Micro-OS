@@ -94,10 +94,56 @@ pub fn sys_write_handler(user_ptr: u64, len: u64) -> i64 {
 }
 
 /// Handler for `SYS_YIELD` (Syscall 2):
-/// Voluntarily yields remaining CPU time-slice to the scheduler.
+/// Voluntarily yields remaining CPU time-slice.
+///
+/// In this microkernel architecture:
+/// 1. If an active task is registered in `SCHEDULER` and other tasks are pending in `READY_QUEUE`,
+///    it invokes `crate::scheduler::sys_yield()` to perform a cooperative context switch.
+/// 2. If an active task is registered in `SCHEDULER` but `READY_QUEUE` is empty, the task yields
+///    its time-slice but retains the CPU since no other tasks are ready.
+/// 3. If running a foreground user program under the interactive shell (executed synchronously
+///    via `run_user_code_with_exit_return`), execution is foreground with no background tasks
+///    scheduled in `READY_QUEUE`. The program yields its time-slice, but since no background
+///    tasks exist to switch to, control returns immediately to the user program without calling
+///    the scheduler task switcher or emitting misleading warnings.
 pub fn sys_yield_handler() -> i64 {
-    crate::info!("[SYSCALL sys_yield] User task voluntarily yielded CPU.");
-    crate::scheduler::sys_yield();
+    // 1. Fail-closed check: If executing in foreground user-mode context (via shell or test runner),
+    // unconditionally take the foreground yield path. Stale SCHEDULER.current state cannot affect it.
+    let user_prog = *crate::task::user_programs::ACTIVE_USER_PROGRAM.lock();
+    let is_test_runner = USER_TEST_RETURN_RSP.load(Ordering::Relaxed) != 0;
+
+    if let Some(name) = user_prog {
+        crate::info!(
+            "[SYSCALL sys_yield] Program '{}' yielded time-slice; foreground execution with no background tasks scheduled (retaining CPU).",
+            name
+        );
+        return SUCCESS;
+    }
+
+    if is_test_runner {
+        crate::info!(
+            "[SYSCALL sys_yield] Foreground user code yielded time-slice; no background tasks scheduled (retaining CPU)."
+        );
+        return SUCCESS;
+    }
+
+    // 2. Check if an active scheduler-managed task is running
+    let sched_current = crate::scheduler::round_robin::SCHEDULER.lock().current;
+    if let Some(id) = sched_current {
+        let rq_empty = crate::task::ready_queue::READY_QUEUE.lock().is_empty();
+        if !rq_empty {
+            crate::info!("[SYSCALL sys_yield] Task {} voluntarily yielding CPU to ready queue.", id);
+            crate::scheduler::sys_yield();
+        } else {
+            crate::info!("[SYSCALL sys_yield] Task {} yielded time-slice; no other tasks ready (retaining CPU).", id);
+        }
+    } else {
+        // Direct kernel-level test invocation of syscall_dispatcher without scheduled task
+        crate::info!(
+            "[SYSCALL sys_yield] Syscall yield invoked without active scheduled task (retaining CPU)."
+        );
+    }
+
     SUCCESS
 }
 

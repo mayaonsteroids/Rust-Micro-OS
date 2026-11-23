@@ -12,6 +12,7 @@ pub mod sleep;
 pub mod state;
 pub mod task;
 pub mod tests;
+pub mod user_programs;
 
 pub use context::TaskContext;
 pub use manager::{
@@ -33,3 +34,4 @@ pub use sleep::{
 };
 pub use state::{StateTransitionError, TaskState};
 pub use task::{Priority, Task, TaskFn, TaskId};
+pub use user_programs::{find_user_program, get_user_programs, run_user_program, UserProgram};

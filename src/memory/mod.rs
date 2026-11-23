@@ -19,8 +19,8 @@ use x86_64::VirtAddr;
 use crate::{info, error};
 
 pub use address_space::{
-    AddressSpace, GlobalFrameAllocator, USER_CODE_VIRT_ADDR, USER_DATA_VIRT_ADDR,
-    USER_SPACE_MAX, USER_SPACE_MIN, USER_STACK_TOP, USER_STACK_VIRT_ADDR,
+    get_memory_stats, AddressSpace, GlobalFrameAllocator, MemoryStats, USER_CODE_VIRT_ADDR,
+    USER_DATA_VIRT_ADDR, USER_SPACE_MAX, USER_SPACE_MIN, USER_STACK_TOP, USER_STACK_VIRT_ADDR,
 };
 pub use allocator::{HEAP_SIZE, HEAP_START};
 pub use frame_allocator::BootInfoFrameAllocator;

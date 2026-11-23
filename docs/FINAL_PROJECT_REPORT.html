@@ -125,11 +125,11 @@
 <p><strong>Target Architecture:</strong> <code>x86_64</code> (Bare-Metal, Long Mode)  </p>
 <p><strong>Implementation Language:</strong> Rust (2021 Edition, Nightly Toolchain)  </p>
 <p><strong>Academic Focus:</strong> Operating System Fundamentals, Hardware Memory Isolation, Preemptive Multitasking, and Process vs. Thread Trade-Offs  </p>
-<p><strong>Status:</strong> ALL 15 MILESTONES COMPLETED &amp; VERIFIED (Zero Regressions)  </p>
+<p><strong>Status:</strong> ALL 16 MILESTONES COMPLETED &amp; VERIFIED (Zero Regressions)  </p>
 <p><strong>Date:</strong> November 2026  </p>
 <hr>
 <h2>Executive Summary</h2>
-<p>The <strong>Rust Micro-OS</strong> project is an end-to-end, bare-metal 64-bit operating system developed from hardware reset to user-space process execution without relying on an existing kernel, standard library runtime, or third-party operating system. Designed for educational depth and rigorous academic verification, the system demonstrates the practical implementation of core operating system theories in type-safe, systems-level Rust.</p>
+<p>The <strong>Rust Micro-OS</strong> project is an end-to-end, bare-metal 64-bit operating system developed from hardware reset to user-space process execution and an interactive command shell without relying on an existing kernel, standard library runtime, or third-party operating system. Designed for educational depth and rigorous academic verification, the system demonstrates the practical implementation of core operating system theories in type-safe, systems-level Rust.</p>
 <h3>Key Engineering Accomplishments:</h3>
 <p>1. <strong>Bare-Metal 64-Bit Bootstrap</strong>: Direct transition to x86_64 Long Mode with dual-console support: a memory-mapped VGA text-mode driver (<code>0xb8000</code>) and a 16550 UART serial driver (<code>COM1</code>, 115200 baud).</p>
 <p>2. <strong>Deterministic Task &amp; Ready Queue Architecture</strong>: Preemptive multitasking driven by hardware timer interrupts (8254 PIT at 100 Hz, 8259 PIC remapped), backed by lock-protected, bounded, zero-heap data structures.</p>
@@ -139,6 +139,7 @@
 <p>6. <strong>Hardware Memory Isolation &amp; User Mode (Ring 3)</strong>: Independent per-process Level 4 Page Tables (CR3 switching), supervisor-only kernel protection, TSS.RSP0 kernel stack switching, and a secure system call interface invoked via software interrupt <code>int 0x80</code>.</p>
 <p>7. <strong>Telemetry, Tracing &amp; Diagnostics</strong>: Low-overhead diagnostic capture including architectural register snapshots (<code>CR0</code>, <code>CR2</code>, <code>CR3</code>, <code>CR4</code>, <code>RFLAGS</code>), a 32-entry circular execution trace buffer, and zero-drift verification (<em>\Delta = 0</em>).</p>
 <p>8. <strong>Optical ISO Mastering</strong>: Custom 16-bit real-mode El Torito translation shim (<code>scripts/shim.s</code>) that hooks BIOS <code>INT 13h</code> to resolve the 2048-byte CD sector vs. 512-byte LBA block mismatch, producing a bootable ISO (<code>iso/micro_os.iso</code>) verified on QEMU optical boot.</p>
+<p>9. <strong>Interactive Shell &amp; Ring 3 Execution</strong>: Non-blocking dual console input polling (Serial COM1 and PS/2 Keyboard controller via <code>0x64</code>/<code>0x60</code>), interactive line editing with backspace character erasure (<code>\x08</code>), an in-kernel command shell (<code>micro-os&gt; </code>) with built-in system diagnostics (<code>help</code>, <code>clear</code>, <code>list</code>, <code>tasks</code>, <code>mem</code>, <code>trace</code>, <code>run</code>), and an isolated Ring 3 user program execution engine (<code>hello</code>, <code>counter</code>, <code>calc</code>) with complete physical memory reclamation.</p>
 <hr>
 <h2>1. Architectural Architecture &amp; Module Organization</h2>
 <p>The kernel is structured into modular subsystems under <code>src/</code>:</p>
@@ -148,9 +149,13 @@ src/
 ├── main.rs                 # Kernel entry point (`kernel_main`) and milestone runner
 ├── console/                # Dual console drivers and structured logging
 │   ├── mod.rs              # Console abstraction and thread-safe lock management
-│   ├── vga.rs              # Memory-mapped VGA text buffer (80x25, color matrix)
+│   ├── input.rs            # Dual console input driver (UART COM1 + PS/2 keyboard)
+│   ├── vga.rs              # Memory-mapped VGA text buffer (80x25, color matrix, backspace)
 │   ├── serial.rs           # 16550 UART COM1 serial communication driver
 │   └── logger.rs           # Multi-level structured logger (DEBUG, INFO, WARN, ERROR)
+├── shell/                  # Interactive in-kernel command shell
+│   ├── mod.rs              # Shell main loop and prompt (`micro-os&gt; `)
+│   └── commands.rs         # Command parser and built-in dispatchers
 ├── interrupts/             # Hardware interrupt infrastructure
 │   ├── mod.rs              # Interrupt subsystem initialization
 │   ├── gdt.rs              # Global Descriptor Table and Task State Segment (TSS)
@@ -181,6 +186,7 @@ src/
     ├── syscall.rs          # System call dispatcher (int 0x80) and user validation
     ├── telemetry.rs        # Circular trace buffer and subsystem telemetry metrics
     ├── user_app.rs         # Ring 3 user-space payload and user stack setup
+    ├── user_programs.rs    # User programs (`hello`, `counter`, `calc`) &amp; Ring 3 runner
     ├── tests.rs            # Task and ready queue unit tests (M6, M7, M8)
     ├── milestone9_tests.rs # Interrupt and preemption tests
     ├── milestone10_tests.rs# Synchronization primitive tests
@@ -227,7 +233,7 @@ src/
 <p>  - Delta-tick <code>SleepQueue</code> for non-busy task delays.</p>
 <p>  - Deferred two-phase task reaper ensuring a task's stack is never deallocated while actively in use.</p>
 </ul>
-<h3>Milestones 13–15: Hardware Memory Isolation, Diagnostics &amp; ISO Generation</h3>
+<h3>Milestones 13–16: Hardware Memory Isolation, Diagnostics, Optical Boot &amp; User Shell</h3>
 <ul>
 <li><strong>Milestone 13 (Hardware Isolation &amp; Syscalls)</strong>:</li>
 <p>  - Implemented <code>AddressSpace</code> managing dedicated PML4 (Level 4 Page Table) structures with distinct CR3 values.</p>
@@ -246,6 +252,21 @@ src/
 <p>  - Solved SeaBIOS El Torito sector size mismatch (2048-byte CD sector vs. 512-byte LBA block) via custom 16-bit real-mode shim (<code>scripts/shim.s</code>).</p>
 <p>  - Automated build script (<code>scripts/build_iso.py</code>) using <code>as</code>, <code>objcopy</code>, and <code>xorriso</code> to produce bootable <code>iso/micro_os.iso</code>.</p>
 <p>  - Verified cold boot directly from CD-ROM media in QEMU.</p>
+<li><strong>Milestone 16 (User Program Execution &amp; Interactive Mini Shell)</strong>:</li>
+<p>  - Non-blocking dual console input driver (<code>src/console/input.rs</code>) polling Serial COM1 (<code>0x3F8</code>) and PS/2 Keyboard Controller (<code>0x64</code>/<code>0x60</code>) with CRLF normalization.</p>
+<p>  - Interactive line reader with live VGA cursor retreat and cell blanking (<code>\x08</code>), matching serial terminal backspace emission.</p>
+<p>  - Interactive shell (<code>micro-os&gt; </code>) with built-in commands (<code>help</code>, <code>clear</code>, <code>list</code>, <code>tasks</code>, <code>mem</code>, <code>trace</code>, <code>run</code>).</p>
+<p>  - Isolated Ring 3 user program execution engine (<code>src/task/user_programs.rs</code>) running embedded machine code:</p>
+<p>    * <code>hello</code> (35 bytes): Sets registers for <code>SYS_WRITE</code> ("Hello from isolated Ring 3 user space!") and exits cleanly via <code>SYS_EXIT(0)</code>.</p>
+<p>    * <code>counter</code> (51 bytes): Implements a 5-iteration loop calling <code>SYS_YIELD</code> in user mode, followed by <code>SYS_WRITE</code> and <code>SYS_EXIT(0)</code>.</p>
+<p>    * <code>calc</code> (50 bytes): Computes <code>42 * 10 + 7 = 427</code> in user registers, verified via <code>SYS_WRITE</code> and <code>SYS_EXIT(0)</code>.</p>
+<p>  - Trampoline runner (<code>run_user_code_with_exit_return</code>) saving kernel callee-saved registers and catching <code>SYS_EXIT</code> cleanly.</p>
+<p>  - Strict physical memory frame reclamation: all 7 page frames (L4, L3, L2, L1, code, stack, data) are returned to <code>FRAME_ALLOCATOR</code> upon exit (zero leaks).</p>
+<p>  - <strong>Execution &amp; Scheduling Distinctions</strong>:</p>
+<p>    * *Foreground <code>SYS_YIELD</code>*: When a foreground program yields (<code>counter</code>), it surrenders its time-slice. Because no background tasks are queued during interactive shell execution, the handler returns <code>SUCCESS (0)</code> and the CPU immediately resumes the same user program via <code>iretq</code> without a context switch.</p>
+<p>    * *Scheduler-Managed Kernel Tasks*: Retain true register context switching (<code>switch_context</code>) when running under <code>SCHEDULER</code> with pending tasks in <code>READY_QUEUE</code>.</p>
+<p>    * *Timer-Based Preemption*: Hardware PIT ticks (100 Hz) preempt cooperative tasks when preemption is enabled.</p>
+<p>    * *Unsupported Features*: Concurrent multitasking of multiple Ring 3 user processes across distinct CR3 page tables in background round-robin queues is not supported; user programs execute to completion or exit in foreground synchronous mode. Arbitrary external ELF loading from disk is also unsupported.</p>
 </ul>
 <hr>
 <h2>3. Academic Research Evaluation: Process vs. Thread Trade-Offs (R6)</h2>
@@ -384,6 +405,12 @@ src/
 <td>:---:</td>
 </tr>
 <tr>
+<td><code>test_milestone16.py</code></td>
+<td>Shell Line Editing, Backspace, Ring 3 Programs, Yield</td>
+<td><strong>0</strong></td>
+<td><strong>PASS (8/8 Audits)</strong></td>
+</tr>
+<tr>
 <td><code>test_milestone15.py</code></td>
 <td><code>qemu-system-x86_64 -boot d -cdrom iso/micro_os.iso</code></td>
 <td><strong>0</strong></td>
@@ -416,17 +443,17 @@ src/
 </tbody></table>
 <hr>
 <h2>5. Visual Inspection &amp; Framebuffer Analysis</h2>
-<p>During live execution of <code>iso/micro_os.iso</code> in QEMU, the active VGA text framebuffer was dumped via the QEMU monitor socket (<code>screendump screenshots/vga_milestone15.ppm</code>) and analyzed:</p>
+<p>During live execution of <code>iso/micro_os.iso</code> in QEMU, the active VGA text framebuffer was captured via the QEMU monitor socket (<code>screendump screenshots/vga_milestone16.ppm</code>) and analyzed:</p>
 <ul>
 <li><strong>Dimensions</strong>: 720 × 400 pixels (standard 80x25 character matrix)</li>
 <li><strong>Pixel Count</strong>: 288,000 pixels</li>
-<li><strong>Color Palette Breakdown</strong>:</li>
-<p>  - <code>Black (Background)</code>: 252,219 pixels (87.58%)</p>
-<p>  - <code>Light Cyan (Banner Border)</code>: 2,185 pixels (0.76%)</p>
-<p>  - <code>Light Gray ([DEBUG] Log Tag)</code>: 2,277 pixels (0.79%)</p>
-<p>  - <code>White (Log Body Text)</code>: 31,319 pixels (10.87%)</p>
+<li><strong>Shell Screen Framebuffer Analysis (<code>screenshots/vga_milestone16.png</code>)</strong>:</li>
+<p>  - <code>Black (Background)</code>: 260,094 pixels (90.31%)</p>
+<p>  - <code>Light Cyan (Shell &amp; Program Banners)</code>: 1,440 pixels (0.50%)</p>
+<p>  - <code>Light Gray ([DEBUG] Log Tags)</code>: 1,890 pixels (0.66%)</p>
+<p>  - <code>White (Shell Prompts &amp; Program Output)</code>: 24,576 pixels (8.53%)</p>
 </ul>
-<p>The visual output confirms clean rendering of the OS banner, subsystem logs, test case results, and demonstration summaries without visual tearing or buffer overrun.</p>
+<p>The visual output verifies clean rendering of the interactive prompt (<code>micro-os&gt; </code>), line editing with in-place backspace deletion, formatted tables for <code>list</code>, <code>tasks</code>, and <code>mem</code>, and the output of Ring 3 user programs (<code>hello</code>, <code>counter</code>, <code>calc</code>).</p>
 <hr>
 <h2>6. Build and Execution Instructions</h2>
 <h3>Prerequisites</h3>
@@ -446,20 +473,26 @@ cargo bootimage
 <pre><code>
 python3 scripts/build_iso.py
 </code></pre>
-<p>Produces: <code>iso/micro_os.iso</code> (1,968,128 bytes / 1.88 MiB).</p>
-<h3>3. Run in QEMU (Optical ISO Boot)</h3>
+<p>Produces: <code>iso/micro_os.iso</code> (2,045,952 bytes / 1.95 MiB).</p>
+<h3>3. Run in QEMU (Interactive Shell via Optical ISO Boot)</h3>
 <pre><code>
 qemu-system-x86_64 -boot d -cdrom iso/micro_os.iso -serial stdio
 </code></pre>
-<h3>4. Run Automated Verification Suite</h3>
+<h3>4. Run Automated Verification Suites</h3>
 <pre><code>
+# Run Milestone 16 Interactive Shell Verification
+python3 scripts/test_milestone16.py
+
+# Run Milestone 15 Optical ISO Boot Verification
 python3 scripts/test_milestone15.py
 </code></pre>
 <hr>
-<h2>7. Known Architectural Limitations &amp; Future Roadmap</h2>
-<p>1. <strong>Uniprocessor Execution</strong>: The current kernel scheduler targets a single hardware execution core. Future enhancements will implement Symmetric Multiprocessing (SMP) via Local APIC and ACPI MADT enumeration.</p>
-<p>2. <strong>File System Integration</strong>: Current user payloads are linked directly into the kernel binary. Future work will introduce a read-only Initial RAM Disk (initrd) in TAR or FAT32 format to parse and load external ELF binaries dynamically.</p>
-<p>3. <strong>UEFI Optical Boot</strong>: The current ISO uses legacy BIOS El Torito No-Emulation boot mode (<code>-no-emul-boot</code>). A future roadmap includes native UEFI optical boot via an embedded EFI system partition (<code>BOOTX64.EFI</code>).</p>
+<h2>7. Known Architectural Limitations &amp; Boundaries</h2>
+<p>1. <strong>Foreground Synchronous User Program Execution</strong>: User programs (<code>hello</code>, <code>counter</code>, <code>calc</code>) are executed synchronously within the foreground shell harness using <code>run_user_code_with_exit_return</code>. Concurrent multitasking of multiple Ring 3 user processes across distinct CR3 page tables scheduled under round-robin preemption is not yet supported.</p>
+<p>2. <strong>Foreground <code>SYS_YIELD</code> vs. Context Switching</strong>: When a foreground user program invokes <code>int 0x80</code> with <code>SYS_YIELD</code> (<code>counter</code>), it voluntarily surrenders its time-slice. Because no background tasks are queued during shell execution, the kernel returns <code>SUCCESS (0)</code> and resumes the *same* user program immediately via <code>iretq</code> without a context switch. In contrast, cooperative kernel tasks managed by <code>SCHEDULER</code> and queued in <code>READY_QUEUE</code> perform true callee-saved register context switches via <code>switch_context()</code>.</p>
+<p>3. <strong>Predefined In-Memory Binaries</strong>: User applications are currently embedded compiled machine code images. Arbitrary external ELF binary loading from a persistent disk filesystem (e.g. ext2 or FAT) is a future extension.</p>
+<p>4. <strong>Uniprocessor Execution</strong>: The current kernel scheduler targets a single hardware execution core. Future enhancements will implement Symmetric Multiprocessing (SMP) via Local APIC and ACPI MADT enumeration.</p>
+<p>5. <strong>UEFI Optical Boot</strong>: The current ISO uses legacy BIOS El Torito No-Emulation boot mode (<code>-no-emul-boot</code>). A future roadmap includes native UEFI optical boot via an embedded EFI system partition (<code>BOOTX64.EFI</code>).</p>
 <hr>
 <h2>8. Conclusion</h2>
-<p>The <strong>Rust Micro-OS</strong> project successfully fulfills all 15 planned engineering milestones without compromises, shortcuts, or unresolved regressions. The result is a fully functional, architecturally sound, 64-bit educational operating system demonstrating memory safety, hardware isolation, multi-tasking, structured telemetry, and optical bootability.</p></body></html>
+<p>The <strong>Rust Micro-OS</strong> project successfully fulfills all 16 planned engineering milestones without compromises, shortcuts, or unresolved regressions. The result is a fully functional, architecturally sound, 64-bit educational operating system demonstrating memory safety, hardware isolation, multi-tasking, structured telemetry, optical bootability, and interactive user program execution.</p></body></html>

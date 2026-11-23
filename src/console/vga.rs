@@ -87,6 +87,18 @@ impl Writer {
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
             b'\n' => self.new_line(),
+            b'\x08' => {
+                if self.column_position > 0 {
+                    self.column_position -= 1;
+                    let row = BUFFER_HEIGHT - 1;
+                    let col = self.column_position;
+                    let blank = ScreenChar {
+                        ascii_character: b' ',
+                        color_code: self.color_code,
+                    };
+                    self.buffer().chars[row][col].write(blank);
+                }
+            }
             byte => {
                 if self.column_position >= BUFFER_WIDTH {
                     self.new_line();
@@ -109,8 +121,8 @@ impl Writer {
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
             match byte {
-                // Printable ASCII byte or newline
-                0x20..=0x7e | b'\n' => self.write_byte(byte),
+                // Printable ASCII byte, newline, or backspace
+                0x20..=0x7e | b'\n' | b'\x08' => self.write_byte(byte),
                 // Unhandled characters printed as a solid block (0xfe)
                 _ => self.write_byte(0xfe),
             }

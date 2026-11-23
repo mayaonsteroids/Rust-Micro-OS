@@ -119,6 +119,27 @@ pub fn phys_to_virt(phys: PhysAddr) -> VirtAddr {
     VirtAddr::new(phys.as_u64() + offset)
 }
 
+/// Statistics for physical frame allocation and recycling.
+#[derive(Debug, Clone, Copy)]
+pub struct MemoryStats {
+    pub allocated_frames: usize,
+    pub deallocated_frames: usize,
+    pub recycled_frames: usize,
+    pub capacity: usize,
+}
+
+/// Retrieves current physical memory frame allocation metrics.
+pub fn get_memory_stats() -> Option<MemoryStats> {
+    let guard = FRAME_ALLOCATOR.lock();
+    let fa = guard.as_ref()?;
+    Some(MemoryStats {
+        allocated_frames: fa.allocated_count,
+        deallocated_frames: fa.deallocated_count,
+        recycled_frames: fa.freed_count,
+        capacity: FREE_LIST_CAPACITY,
+    })
+}
+
 /// Allocates a single physical frame from the global allocator.
 pub fn allocate_frame() -> Option<PhysFrame> {
     FRAME_ALLOCATOR.lock().as_mut()?.allocate_frame()
@@ -275,6 +296,19 @@ impl AddressSpace {
         unsafe {
             let dest = virt.as_mut_ptr::<u8>();
             core::ptr::copy_nonoverlapping(code.as_ptr(), dest, code.len());
+        }
+        Ok(())
+    }
+
+    /// Loads static data bytes into this address space's user data page (0x0000_0080_0002_0000).
+    pub fn load_data(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        if data.len() > 4096 {
+            return Err("Data exceeds 4096-byte page size");
+        }
+        let virt = phys_to_virt(self.user_data_frame.start_address());
+        unsafe {
+            let dest = virt.as_mut_ptr::<u8>();
+            core::ptr::copy_nonoverlapping(data.as_ptr(), dest, data.len());
         }
         Ok(())
     }

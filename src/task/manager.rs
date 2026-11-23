@@ -102,6 +102,11 @@ impl TaskManager {
         })
     }
 
+    /// Returns a reference to all task slots in the Task Manager table.
+    pub fn tasks(&self) -> &[Option<Task>; MAX_TASKS] {
+        &self.tasks
+    }
+
     /// Retrieves an immutable reference to a task by its TaskId.
     pub fn get_task(&self, id: TaskId) -> Option<&Task> {
         self.tasks.iter().find_map(|slot| {

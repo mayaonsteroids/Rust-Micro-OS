@@ -428,11 +428,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // Step 5: Verification of zero state drift and system health
     info!("M14-Demo Step 5: Verified zero state drift, leak-free memory, and kernel health.");
     info!("All Milestone 14 tasks, tests, and demonstrations completed successfully. Entering idle loop.");
+    info!("--- Milestone 16: Launching Interactive Command Shell ---");
 
-    // Halt loop
-    loop {
-        x86_64::instructions::hlt();
-    }
+    rust_micro_os::shell::run_shell();
 }
 
 /// Simulated task entry point for background idle task.

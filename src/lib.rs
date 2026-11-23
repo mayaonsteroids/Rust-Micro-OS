@@ -11,6 +11,7 @@ pub mod kernel;
 pub mod memory;
 pub mod research;
 pub mod scheduler;
+pub mod shell;
 pub mod sync;
 pub mod task;
 pub mod timer;
