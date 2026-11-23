@@ -56,6 +56,8 @@ pub fn show_boot_splash(status: &str) {
 pub struct Desktop {
     pub active_app: AppId,
     pub is_window_open: bool,
+    pub last_music_elapsed: u32,
+    pub last_music_state: crate::audio::PlaybackState,
     pub terminal: TerminalApp,
     pub network: NetworkApp,
     pub browser: BrowserApp,
@@ -71,6 +73,8 @@ impl Desktop {
         Self {
             active_app: AppId::Terminal,
             is_window_open: false, // Boots directly into Desktop Home Screen
+            last_music_elapsed: 0,
+            last_music_state: crate::audio::PlaybackState::Stopped,
             terminal: TerminalApp::new(),
             network: NetworkApp::new(),
             browser: BrowserApp::new(),
@@ -82,12 +86,13 @@ impl Desktop {
         }
     }
 
-    /// Renders the current desktop state into the compositor and flushes to VGA.
+    /// Renders the current desktop state into the compositor and flushes to VGA / Framebuffer.
     pub fn render(&mut self) {
         // 1. If graphical framebuffer is active (BGA 1024x768x32), render truecolor pixel GUI
         if crate::graphics::is_active() {
             crate::graphics::with_framebuffer(|fb| {
                 self.render_pixel(fb);
+                fb.present();
             });
         }
 
@@ -120,6 +125,24 @@ impl Desktop {
 
         // 3. Atomic Present to VGA Text Buffer 0xb8000
         comp.present();
+    }
+
+    /// Renders only the music progress bar, elapsed time, and status badge without a full screen redraw.
+    pub fn render_music_progress(&mut self) {
+        if self.is_window_open && self.active_app == AppId::Music {
+            if crate::graphics::is_active() {
+                crate::graphics::with_framebuffer(|fb| {
+                    let window = Window::standard(self.active_app.window_title());
+                    self.music.draw_pixel_progress(&window, fb);
+                    fb.present();
+                });
+            } else {
+                let mut comp = COMPOSITOR.lock();
+                let window = Window::standard(self.active_app.window_title());
+                self.music.draw(&window, &mut comp);
+                comp.present();
+            }
+        }
     }
 
     /// Renders the pixel-based desktop into the 1024x768 Framebuffer.
@@ -336,7 +359,6 @@ pub fn run_desktop() {
     // Enable CPU interrupts for keyboard and timer delivery
     x86_64::instructions::interrupts::enable();
 
-    let mut last_render_tick = crate::timer::get_ticks();
     let mut last_audio_tick = crate::timer::get_ticks();
 
     loop {
@@ -442,18 +464,22 @@ pub fn run_desktop() {
 
             // Re-render desktop
             dt.render();
-            last_render_tick = crate::timer::get_ticks();
         } else {
-            // Check if audio is actively playing: re-render progress bar every 10 ticks (100 ms)
-            let current_tick = crate::timer::get_ticks();
-            let is_audio_playing = crate::audio::AUDIO_ENGINE.lock().state == crate::audio::PlaybackState::Playing;
+            // Check if audio is actively playing: re-render ONLY the progress bar when seconds tick
+            let (is_audio_playing, cur_elapsed, cur_state) = {
+                let audio = crate::audio::AUDIO_ENGINE.lock();
+                (audio.state == crate::audio::PlaybackState::Playing, audio.elapsed_seconds(), audio.state)
+            };
 
-            if is_audio_playing && current_tick >= last_render_tick + 10 {
+            if is_audio_playing {
                 let mut dt = DESKTOP.lock();
-                if dt.active_app == AppId::Music {
-                    dt.render();
+                if dt.is_window_open && dt.active_app == AppId::Music {
+                    if cur_elapsed != dt.last_music_elapsed || cur_state != dt.last_music_state {
+                        dt.last_music_elapsed = cur_elapsed;
+                        dt.last_music_state = cur_state;
+                        dt.render_music_progress();
+                    }
                 }
-                last_render_tick = current_tick;
             }
 
             // High-frequency responsive spin loop ensuring immediate key delivery

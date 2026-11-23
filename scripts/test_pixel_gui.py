@@ -161,8 +161,8 @@ def main():
         record_test("1. BGA Hardware Activation", bga_detected, "Programmed BGA 0x01CE/0x01CF to 1024x768 @ 32 bpp")
 
         # 2. PCI BAR0 VRAM Mapping
-        vram_mapped = "Decoded PCI BAR0 Framebuffer Address: 0xfd000000" in boot_log and "Mapping 3145728 bytes of VRAM" in boot_log
-        record_test("2. VRAM MMIO Mapping", vram_mapped, "Mapped 3.0 MiB VRAM at 0xfd000000 into virtual memory")
+        vram_mapped = "Decoded PCI BAR0 Framebuffer Address: 0xfd000000" in boot_log and ("Mapping 3145728 bytes of VRAM" in boot_log or "double-buffered VRAM" in boot_log)
+        record_test("2. VRAM MMIO Mapping", vram_mapped, "Mapped VRAM at 0xfd000000 into virtual memory (double-buffered)")
 
         # 3. Capture Home Screen Screendump
         print("[*] Capturing Desktop Home Screen screendump...")

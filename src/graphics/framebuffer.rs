@@ -50,19 +50,27 @@ pub const DEFAULT_WIDTH: usize = 1024;
 pub const DEFAULT_HEIGHT: usize = 768;
 pub const DEFAULT_BPP: usize = 32;
 
-/// Global Framebuffer Controller
+/// Global Framebuffer Controller with VRAM Double Buffering and Dirty Tracking
 pub struct Framebuffer {
     pub width: usize,
     pub height: usize,
-    pub pitch: usize,       // Bytes per scanline
+    pub pitch: usize,       // Bytes per scanline (4096)
     pub bpp: usize,         // Bits per pixel (32)
     pub phys_addr: u64,
-    pub base_ptr: *mut u32,
+    pub front_ptr: *mut u32, // Visible front buffer in VRAM (offset 0)
+    pub back_ptr: *mut u32,  // Off-screen back buffer in VRAM (offset 3,145,728)
+    pub base_ptr: *mut u32,  // Active drawing destination (points to back_ptr)
     pub is_active: bool,
     pub clip_x0: usize,
     pub clip_y0: usize,
     pub clip_x1: usize,
     pub clip_y1: usize,
+    // Dirty tracking coordinates
+    pub dirty_x0: usize,
+    pub dirty_y0: usize,
+    pub dirty_x1: usize,
+    pub dirty_y1: usize,
+    pub has_dirty: bool,
 }
 
 // Implement Send & Sync for Framebuffer since base_ptr points to MMIO memory
@@ -78,12 +86,19 @@ impl Framebuffer {
             pitch: 0,
             bpp: 0,
             phys_addr: 0,
+            front_ptr: core::ptr::null_mut(),
+            back_ptr: core::ptr::null_mut(),
             base_ptr: core::ptr::null_mut(),
             is_active: false,
             clip_x0: 0,
             clip_y0: 0,
             clip_x1: 0,
             clip_y1: 0,
+            dirty_x0: 0,
+            dirty_y0: 0,
+            dirty_x1: 0,
+            dirty_y1: 0,
+            has_dirty: false,
         }
     }
 
@@ -156,7 +171,7 @@ impl Framebuffer {
             info!("[GRAPHICS] Decoded PCI BAR0 Framebuffer Address: 0x{:08x}", pci_bar0);
         }
 
-        // 3. Program BGA Video Mode (1024x768x32)
+        // 3. Program BGA Video Mode (1024x768x32) with virtual height of 1536 (2 frames)
         unsafe {
             // Disable while configuring
             Self::bga_write(VBE_DISPI_INDEX_ENABLE, VBE_DISPI_DISABLED);
@@ -164,7 +179,7 @@ impl Framebuffer {
             Self::bga_write(VBE_DISPI_INDEX_YRES, target_h as u16);
             Self::bga_write(VBE_DISPI_INDEX_BPP, DEFAULT_BPP as u16);
             Self::bga_write(VBE_DISPI_INDEX_VIRT_WIDTH, target_w as u16);
-            Self::bga_write(VBE_DISPI_INDEX_VIRT_HEIGHT, target_h as u16);
+            Self::bga_write(VBE_DISPI_INDEX_VIRT_HEIGHT, (target_h * 2) as u16);
             Self::bga_write(VBE_DISPI_INDEX_X_OFFSET, 0);
             Self::bga_write(VBE_DISPI_INDEX_Y_OFFSET, 0);
 
@@ -184,14 +199,18 @@ impl Framebuffer {
         info!("[GRAPHICS] Mode Activated: {}x{} @ {} bpp (Enable Register: 0x{:04x})",
             cur_x, cur_y, cur_bpp, cur_en);
 
-        // 4. Map physical VRAM into virtual memory
-        let fb_size = cur_x * cur_y * (cur_bpp / 8);
-        info!("[GRAPHICS] Mapping {} bytes of VRAM into virtual address space...", fb_size);
+        // 4. Map physical VRAM for 2 full frames (6.0 MiB)
+        let single_frame_bytes = cur_x * cur_y * (cur_bpp / 8);
+        let total_vram_bytes = single_frame_bytes * 2;
+        info!("[GRAPHICS] Mapping 3145728 bytes of VRAM per buffer ({} bytes total for double-buffered VRAM)...",
+            total_vram_bytes);
 
-        let virt_base = crate::memory::paging::map_mmio_range(PhysAddr::new(pci_bar0 as u64), fb_size);
-        let base_ptr = virt_base.as_mut_ptr::<u32>();
+        let virt_base = crate::memory::paging::map_mmio_range(PhysAddr::new(pci_bar0 as u64), total_vram_bytes);
+        let front_ptr = virt_base.as_mut_ptr::<u32>();
+        let back_ptr = unsafe { front_ptr.add(cur_x * cur_y) };
 
-        info!("[GRAPHICS] Framebuffer mapped at virtual address 0x{:016x}", virt_base.as_u64());
+        info!("[GRAPHICS] Front Buffer (visible): 0x{:016x}, Back Buffer (staging): 0x{:016x}",
+            front_ptr as u64, back_ptr as u64);
 
         let mut fb = Self {
             width: cur_x,
@@ -199,18 +218,126 @@ impl Framebuffer {
             pitch: cur_x * 4,
             bpp: cur_bpp,
             phys_addr: pci_bar0,
-            base_ptr,
+            front_ptr,
+            back_ptr,
+            base_ptr: back_ptr, // All drawing operations write to back_ptr!
             is_active: true,
             clip_x0: 0,
             clip_y0: 0,
             clip_x1: cur_x,
             clip_y1: cur_y,
+            dirty_x0: 0,
+            dirty_y0: 0,
+            dirty_x1: cur_x,
+            dirty_y1: cur_y,
+            has_dirty: true,
         };
 
-        // Clear screen with theme desktop background (#E9DFFF)
-        fb.clear(crate::graphics::color::theme::DESKTOP_BG);
+        // Initialize both front and back buffers with theme desktop background (#E9DFFF)
+        let bg_val = crate::graphics::color::theme::DESKTOP_BG.to_u32();
+        let total_pixels = cur_x * cur_y;
+        unsafe {
+            for i in 0..total_pixels {
+                *front_ptr.add(i) = bg_val;
+                *back_ptr.add(i) = bg_val;
+            }
+        }
+        fb.has_dirty = false;
 
         Some(fb)
+    }
+
+    /// Marks a rectangular region as dirty, expanding the current dirty bounds.
+    #[inline(always)]
+    pub fn mark_dirty(&mut self, x: usize, y: usize, w: usize, h: usize) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        let x0 = x.min(self.width);
+        let y0 = y.min(self.height);
+        let x1 = (x + w).min(self.width);
+        let y1 = (y + h).min(self.height);
+
+        if !self.has_dirty {
+            self.dirty_x0 = x0;
+            self.dirty_y0 = y0;
+            self.dirty_x1 = x1;
+            self.dirty_y1 = y1;
+            self.has_dirty = true;
+        } else {
+            self.dirty_x0 = self.dirty_x0.min(x0);
+            self.dirty_y0 = self.dirty_y0.min(y0);
+            self.dirty_x1 = self.dirty_x1.max(x1);
+            self.dirty_y1 = self.dirty_y1.max(y1);
+        }
+    }
+
+    /// Flushes dirty regions from the off-screen back buffer to the visible front buffer.
+    /// Synchronizes with vertical retrace (bounded, non-blocking) to eliminate tearing.
+    pub fn present(&mut self) {
+        if !self.has_dirty {
+            return; // Zero writes if nothing changed!
+        }
+
+        // Bounded non-blocking check for VGA Vertical Retrace (ISR1 Port 0x03DA, bit 3)
+        // Never blocks if the VM does not toggle VRetrace.
+        let mut isr1 = Port::<u8>::new(0x03DA);
+        for _ in 0..600 {
+            if (unsafe { isr1.read() } & 0x08) != 0 {
+                break;
+            }
+            core::hint::spin_loop();
+        }
+
+        let x0 = self.dirty_x0;
+        let x1 = self.dirty_x1.min(self.width);
+        let y0 = self.dirty_y0;
+        let y1 = self.dirty_y1.min(self.height);
+
+        if x1 > x0 && y1 > y0 {
+            let width_words = x1 - x0;
+            let pitch_words = self.pitch / 4;
+
+            for y in y0..y1 {
+                let row_offset = y * pitch_words + x0;
+                unsafe {
+                    let src = self.back_ptr.add(row_offset);
+                    let dst = self.front_ptr.add(row_offset);
+                    core::ptr::copy_nonoverlapping(src, dst, width_words);
+                }
+            }
+        }
+
+        self.has_dirty = false;
+        self.dirty_x0 = self.width;
+        self.dirty_y0 = self.height;
+        self.dirty_x1 = 0;
+        self.dirty_y1 = 0;
+    }
+
+    /// Explicitly flushes a specific rectangular region immediately from back to front buffer.
+    pub fn present_rect(&mut self, x: usize, y: usize, w: usize, h: usize) {
+        if w == 0 || h == 0 {
+            return;
+        }
+        let x0 = x.min(self.width);
+        let y0 = y.min(self.height);
+        let x1 = (x + w).min(self.width);
+        let y1 = (y + h).min(self.height);
+
+        if x1 > x0 && y1 > y0 {
+            let width_words = x1 - x0;
+            let pitch_words = self.pitch / 4;
+
+            for row in y0..y1 {
+                let row_offset = row * pitch_words + x0;
+                unsafe {
+                    let src = self.back_ptr.add(row_offset);
+                    let dst = self.front_ptr.add(row_offset);
+                    core::ptr::copy_nonoverlapping(src, dst, width_words);
+                }
+            }
+        }
     }
 
     /// Sets the active clipping rectangle for drawing operations.
@@ -236,6 +363,8 @@ impl Framebuffer {
             return;
         }
 
+        self.mark_dirty(x, y, 1, 1);
+
         let offset = y * (self.pitch / 4) + x;
         unsafe {
             if color.a == 255 {
@@ -254,7 +383,7 @@ impl Framebuffer {
         }
     }
 
-    /// Reads a single pixel at `(x, y)`.
+    /// Reads a single pixel at `(x, y)` from the back buffer.
     #[inline]
     pub fn get_pixel(&self, x: usize, y: usize) -> Color {
         if x >= self.width || y >= self.height {
@@ -272,6 +401,7 @@ impl Framebuffer {
 
     /// Clears the entire framebuffer to a solid color.
     pub fn clear(&mut self, color: Color) {
+        self.mark_dirty(0, 0, self.width, self.height);
         let val = color.to_u32();
         let total_pixels = self.width * self.height;
         unsafe {
@@ -292,6 +422,8 @@ impl Framebuffer {
             return;
         }
 
+        self.mark_dirty(x_start, y_start, x_end - x_start, y_end - y_start);
+
         let val = color.to_u32();
         let words_per_line = self.pitch / 4;
 
@@ -306,8 +438,20 @@ impl Framebuffer {
             }
         } else {
             for row in y_start..y_end {
+                let row_offset = row * words_per_line;
                 for col in x_start..x_end {
-                    self.set_pixel(col, row, color);
+                    let offset = row_offset + col;
+                    unsafe {
+                        let existing_u32 = *self.base_ptr.add(offset);
+                        let existing_color = Color::rgba(
+                            ((existing_u32 >> 16) & 0xFF) as u8,
+                            ((existing_u32 >> 8) & 0xFF) as u8,
+                            (existing_u32 & 0xFF) as u8,
+                            255,
+                        );
+                        let blended = color.blend_over(existing_color);
+                        *self.base_ptr.add(offset) = blended.to_u32();
+                    }
                 }
             }
         }

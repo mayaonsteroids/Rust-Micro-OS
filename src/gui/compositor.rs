@@ -194,7 +194,13 @@ impl Compositor {
     /// Blits the entire off-screen back buffer to physical MMIO VGA buffer at 0xb8000.
     ///
     /// Executes with interrupts disabled to guarantee atomic, tear-free frame presentation.
+    /// When the graphical framebuffer is active, skips VGA 0xb8000 writes to prevent
+    /// dual-plane contention and display flickering in VirtualBox.
     pub fn present(&self) {
+        if crate::graphics::is_active() {
+            return;
+        }
+
         x86_64::instructions::interrupts::without_interrupts(|| {
             let vga_buffer = unsafe { &mut *(0xb8000 as *mut Buffer) };
             for row in 0..BUFFER_HEIGHT {

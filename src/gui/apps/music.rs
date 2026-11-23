@@ -427,6 +427,86 @@ impl MusicApp {
         // Bottom Hotkey Instructions
         font::draw_string(fb, cx + 40, cy + ch - 28, "Controls: [P/Space] Play/Pause | [N] Next | [V] Prev | [+/-] Volume | [R] Repeat | [Esc] Minimize", Color::rgb(140, 125, 165), music_bg);
     }
+
+    /// Efficiently redraws only the live progress slider, timestamp, and status badge
+    /// without re-rendering the full window or clearing the screen.
+    pub fn draw_pixel_progress(&self, _window: &Window, fb: &mut crate::graphics::Framebuffer) {
+        use crate::graphics::{draw, font, theme, Color};
+
+        let cx = Window::CLIENT_PIXEL_X;
+        let cy = Window::CLIENT_PIXEL_Y;
+        let cw = Window::CLIENT_PIXEL_WIDTH;
+        let music_bg = Color::rgb(22, 16, 34);
+
+        let audio = AUDIO_ENGINE.lock();
+        let track = audio.current_track();
+        let state = audio.state;
+        let percent = audio.progress_percent();
+        let elapsed_sec = audio.elapsed_seconds();
+        let total_sec = track.duration_seconds as u32;
+        drop(audio);
+
+        // 1. Status Indicator Badge & Time (cy + 164)
+        let meta_x = cx + 224;
+        let badge_y = cy + 164;
+        fb.fill_rect(meta_x, badge_y, 350, 28, music_bg);
+
+        match state {
+            PlaybackState::Playing => {
+                draw::fill_rounded_rect(fb, meta_x, badge_y, 140, 28, 14, Color::rgb(35, 140, 65));
+                font::draw_string(fb, meta_x + 16, badge_y + 6, "> PLAYING", theme::WHITE, Color::rgb(35, 140, 65));
+            }
+            PlaybackState::Paused => {
+                draw::fill_rounded_rect(fb, meta_x, badge_y, 140, 28, 14, Color::rgb(150, 110, 25));
+                font::draw_string(fb, meta_x + 16, badge_y + 6, "|| PAUSED", theme::WHITE, Color::rgb(150, 110, 25));
+            }
+            PlaybackState::Stopped => {
+                draw::fill_rounded_rect(fb, meta_x, badge_y, 140, 28, 14, Color::rgb(70, 60, 85));
+                font::draw_string(fb, meta_x + 16, badge_y + 6, "[] STOPPED", theme::WHITE, Color::rgb(70, 60, 85));
+            }
+        }
+
+        let mut time_buf = [0u8; 16];
+        let time_str = format_time(elapsed_sec, total_sec, &mut time_buf);
+        font::draw_string(fb, meta_x + 160, badge_y + 6, time_str, Color::rgb(220, 210, 240), music_bg);
+
+        // 2. Live Progress Bar (ctrl_y + 16 = cy + 440)
+        let ctrl_y = cy + 424;
+        let prog_x = cx + 32;
+        let prog_w = cw - 64;
+        let prog_h = 10;
+        let bar_y = ctrl_y + 16;
+
+        fb.fill_rect(prog_x, bar_y - 4, prog_w, 24, music_bg);
+
+        let mut elapsed_buf = [0u8; 8];
+        let mut total_buf = [0u8; 8];
+        let e_str = format_seconds(elapsed_sec, &mut elapsed_buf);
+        let t_str = format_seconds(total_sec, &mut total_buf);
+
+        font::draw_string(fb, prog_x, bar_y - 2, e_str, Color::rgb(160, 145, 185), music_bg);
+        font::draw_string(fb, prog_x + prog_w - 40, bar_y - 2, t_str, Color::rgb(160, 145, 185), music_bg);
+
+        let actual_bar_x = prog_x + 50;
+        let actual_bar_w = prog_w.saturating_sub(100);
+
+        // Progress bar background track
+        draw::fill_rounded_rect(fb, actual_bar_x, bar_y + 2, actual_bar_w, prog_h, 5, Color::rgb(45, 35, 65));
+
+        // Filled progress bar
+        let filled_px = ((percent as usize * actual_bar_w) / 100).min(actual_bar_w);
+        if filled_px > 0 {
+            let fill_color = match state {
+                PlaybackState::Playing => Color::rgb(130, 85, 210),
+                PlaybackState::Paused => Color::rgb(180, 130, 50),
+                PlaybackState::Stopped => Color::rgb(90, 75, 115),
+            };
+            draw::fill_rounded_rect(fb, actual_bar_x, bar_y + 2, filled_px, prog_h, 5, fill_color);
+            // Thumb knob
+            let thumb_x = actual_bar_x + filled_px;
+            draw::fill_rounded_rect(fb, thumb_x.saturating_sub(6), bar_y - 1, 12, 16, 6, theme::WHITE);
+        }
+    }
 }
 
 fn format_seconds<'a>(sec: u32, buf: &'a mut [u8; 8]) -> &'a str {
