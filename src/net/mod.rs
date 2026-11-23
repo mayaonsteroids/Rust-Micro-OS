@@ -1,14 +1,32 @@
 //! Network subsystem for `rust-micro-os`.
 //!
-//! Provides network device driver integration (Intel E1000) and packet transmission / reception.
+//! Provides Ethernet framing, ARP, IPv4, UDP, ICMP Ping, and Intel E1000 driver integration.
 
 pub mod e1000;
+pub mod ethernet;
+pub mod arp;
+pub mod ipv4;
+pub mod udp;
+pub mod icmp;
+pub mod config;
+pub mod stack;
 
 pub use e1000::{E1000Device, E1000_DEVICE};
+pub use ethernet::{EthernetHeader, MacAddress, BROADCAST_MAC, ETHERTYPE_ARP, ETHERTYPE_IPV4};
+pub use arp::{ArpPacket, ArpEntry, ArpCache, ARP_CACHE};
+pub use ipv4::{Ipv4Header, Ipv4Address, IP_PROTOCOL_ICMP, IP_PROTOCOL_UDP};
+pub use udp::{UdpHeader, MAX_UDP_PAYLOAD_LEN};
+pub use icmp::{IcmpEchoHeader, ICMP_TYPE_ECHO_REPLY, ICMP_TYPE_ECHO_REQUEST};
+pub use config::{NetworkConfig, ConfigMode, get_config, set_mac_address, set_static_config};
+pub use stack::{process_incoming_frame, poll_network, resolve_arp, send_ipv4, send_udp, ping, LAST_UDP, LAST_ICMP_REPLY};
 
-/// Initializes the network subsystem by probing and configuring network hardware.
+/// Initializes the network subsystem: initializes hardware driver and synchronizes MAC configuration.
 pub fn init() -> Result<(), &'static str> {
-    e1000::init()
+    e1000::init()?;
+    if let Some(mac) = get_mac_address() {
+        config::set_mac_address(mac);
+    }
+    Ok(())
 }
 
 /// Transmits a raw Ethernet frame via the active network controller.

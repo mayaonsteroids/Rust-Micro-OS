@@ -73,7 +73,7 @@ fn cmd_help() {
     kprintln!("  hostname      - Display or set system hostname");
     kprintln!("  uname [-a]    - Display system and architecture information");
     kprintln!("  pci           - Enumerate and display PCI bus devices and BARs");
-    kprintln!("  net [test]    - Display network controller status, MAC, and test packet");
+    kprintln!("  net [cmd]     - Network interface status, info, arp cache, ping, or test");
     kprintln!("  list          - List available Ring 3 user programs");
     kprintln!("  tasks         - Display active and registered kernel tasks and processes");
     kprintln!("  mem           - Display physical frame allocation and free-list statistics");
@@ -204,43 +204,222 @@ fn cmd_pci() {
     }
 }
 
-/// Handler for `net`: Displays network device status, MAC address, and tests frame transmission/reception.
-fn cmd_net(args: &str) {
-    vga::set_color(Color::LightCyan, Color::Black);
-    kprintln!("=== Network Interface (Intel E1000) ===");
-    vga::set_color(Color::White, Color::Black);
+/// Parses an IPv4 address from string format "A.B.C.D".
+fn parse_ipv4_address(s: &str) -> Option<[u8; 4]> {
+    let mut parts = s.split('.');
+    let a = parse_u8(parts.next()?)?;
+    let b = parse_u8(parts.next()?)?;
+    let c = parse_u8(parts.next()?)?;
+    let d = parse_u8(parts.next()?)?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some([a, b, c, d])
+}
 
-    let mut guard = crate::net::E1000_DEVICE.lock();
-    let dev = match guard.as_mut() {
-        Some(d) => d,
-        None => {
-            vga::set_color(Color::Yellow, Color::Black);
-            kprintln!("No active network controller detected on PCI bus.");
-            vga::set_color(Color::White, Color::Black);
-            return;
+fn parse_u8(s: &str) -> Option<u8> {
+    let mut val: u16 = 0;
+    if s.is_empty() || s.len() > 3 {
+        return None;
+    }
+    for b in s.bytes() {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        val = val * 10 + (b - b'0') as u16;
+    }
+    if val <= 255 {
+        Some(val as u8)
+    } else {
+        None
+    }
+}
+
+/// Handler for `net`: Displays network device status, MAC address, ARP table, and diagnostics.
+fn cmd_net(args: &str) {
+    let dev_info = {
+        let guard = crate::net::E1000_DEVICE.lock();
+        match guard.as_ref() {
+            Some(dev) => Some((
+                dev.mac_addr,
+                dev.is_link_up(),
+                dev.bar0_phys,
+                dev.bar0_size,
+                dev.rx_ring_phys,
+                dev.tx_ring_phys,
+                dev.tx_packet_count,
+                dev.tx_bytes_count,
+                dev.rx_packet_count,
+                dev.rx_bytes_count,
+            )),
+            None => None,
         }
     };
 
-    let mac = dev.mac_addr;
-    let link_up = dev.is_link_up();
+    let (mac, link_up, bar0_phys, bar0_size, rx_ring, tx_ring, tx_pkts, tx_bytes, rx_pkts, rx_bytes) =
+        match dev_info {
+            Some(info) => info,
+            None => {
+                vga::set_color(Color::Yellow, Color::Black);
+                kprintln!("No active network controller detected on PCI bus.");
+                vga::set_color(Color::White, Color::Black);
+                return;
+            }
+        };
 
+    let subcmd = args.trim();
+
+    if subcmd == "info" {
+        let cfg = crate::net::get_config();
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("=== Network Interface Configuration ===");
+        vga::set_color(Color::White, Color::Black);
+        kprintln!("  Interface:    eth0 (Intel 82540EM Gigabit)");
+        kprintln!(
+            "  MAC Address:  {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            cfg.mac[0], cfg.mac[1], cfg.mac[2], cfg.mac[3], cfg.mac[4], cfg.mac[5]
+        );
+        kprintln!(
+            "  IPv4 Address: {}.{}.{}.{}",
+            cfg.ip[0], cfg.ip[1], cfg.ip[2], cfg.ip[3]
+        );
+        kprintln!(
+            "  Subnet Mask:  {}.{}.{}.{}",
+            cfg.subnet_mask[0], cfg.subnet_mask[1], cfg.subnet_mask[2], cfg.subnet_mask[3]
+        );
+        kprintln!(
+            "  Gateway:      {}.{}.{}.{}",
+            cfg.gateway[0], cfg.gateway[1], cfg.gateway[2], cfg.gateway[3]
+        );
+        kprintln!(
+            "  DNS Server:   {}.{}.{}.{}",
+            cfg.dns[0], cfg.dns[1], cfg.dns[2], cfg.dns[3]
+        );
+        kprintln!("  Config Mode:  Static (QEMU SLIRP Virtual Network)");
+        return;
+    }
+
+    if subcmd == "arp" {
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!("=== ARP Cache Table ===");
+        vga::set_color(Color::White, Color::Black);
+        kprintln!("IP ADDRESS       MAC ADDRESS        STATUS");
+        kprintln!("------------------------------------------------");
+        let cache = crate::net::ARP_CACHE.lock();
+        let mut count = 0;
+        for entry in cache.entries.iter() {
+            if entry.valid {
+                kprintln!(
+                    "{:3}.{:3}.{:3}.{:3}  {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}  DYNAMIC (VALID)",
+                    entry.ip[0], entry.ip[1], entry.ip[2], entry.ip[3],
+                    entry.mac[0], entry.mac[1], entry.mac[2], entry.mac[3], entry.mac[4], entry.mac[5]
+                );
+                count += 1;
+            }
+        }
+        if count == 0 {
+            kprintln!("  (ARP cache is currently empty. Run 'net test' or 'net ping' to resolve)");
+        }
+        return;
+    }
+
+    if subcmd.starts_with("ping") {
+        let parts: alloc::vec::Vec<&str> = subcmd.split_whitespace().collect();
+        let target_ip = if parts.len() > 1 {
+            match parse_ipv4_address(parts[1]) {
+                Some(ip) => ip,
+                None => {
+                    vga::set_color(Color::LightRed, Color::Black);
+                    kprintln!("Usage: net ping [IPv4 Address]");
+                    vga::set_color(Color::White, Color::Black);
+                    return;
+                }
+            }
+        } else {
+            crate::net::get_config().gateway
+        };
+
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!(
+            "PING {}.{}.{}.{} with 64 bytes of ICMP data...",
+            target_ip[0], target_ip[1], target_ip[2], target_ip[3]
+        );
+        vga::set_color(Color::White, Color::Black);
+
+        match crate::net::ping(target_ip, 20_000_000) {
+            Ok(_spins) => {
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!(
+                    "64 bytes from {}.{}.{}.{}: icmp_seq=1 ttl=64 verified (genuine ICMP reply)",
+                    target_ip[0], target_ip[1], target_ip[2], target_ip[3]
+                );
+                vga::set_color(Color::White, Color::Black);
+            }
+            Err(e) => {
+                vga::set_color(Color::LightRed, Color::Black);
+                kprintln!("Ping failed: {}", e);
+                vga::set_color(Color::White, Color::Black);
+            }
+        }
+        return;
+    }
+
+    if subcmd.starts_with("udp") {
+        let parts: alloc::vec::Vec<&str> = subcmd.split_whitespace().collect();
+        let target_ip = if parts.len() > 1 {
+            parse_ipv4_address(parts[1]).unwrap_or([10, 0, 2, 2])
+        } else {
+            [10, 0, 2, 2]
+        };
+        let msg = if parts.len() > 2 {
+            parts[2].as_bytes()
+        } else {
+            b"Hello from Rust Micro-OS UDP!"
+        };
+
+        vga::set_color(Color::LightCyan, Color::Black);
+        kprintln!(
+            "[NET] Sending UDP datagram to {}.{}.{}.{}:5000 ({} bytes)...",
+            target_ip[0], target_ip[1], target_ip[2], target_ip[3], msg.len()
+        );
+        vga::set_color(Color::White, Color::Black);
+
+        match crate::net::send_udp(target_ip, 5000, 49152, msg) {
+            Ok(()) => {
+                vga::set_color(Color::LightGreen, Color::Black);
+                kprintln!("[NET] UDP datagram transmitted successfully via IPv4/Ethernet.");
+                vga::set_color(Color::White, Color::Black);
+            }
+            Err(e) => {
+                vga::set_color(Color::LightRed, Color::Black);
+                kprintln!("[NET] UDP transmission failed: {}", e);
+                vga::set_color(Color::White, Color::Black);
+            }
+        }
+        return;
+    }
+
+    // Default `net` output (interface hardware status)
+    vga::set_color(Color::LightCyan, Color::Black);
+    kprintln!("=== Network Interface (Intel E1000) ===");
+    vga::set_color(Color::White, Color::Black);
     kprintln!(
         "  MAC Address:  {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
     );
     kprintln!("  Link Status:  {}", if link_up { "UP (1000 Mbps Full Duplex)" } else { "DOWN" });
-    kprintln!("  BAR0 MMIO:    0x{:08x} (size: {} KiB)", dev.bar0_phys, dev.bar0_size / 1024);
-    kprintln!("  DMA RX Ring:  0x{:08x} (8 descriptors, 2048B buffers)", dev.rx_ring_phys);
-    kprintln!("  DMA TX Ring:  0x{:08x} (8 descriptors, 2048B buffers)", dev.tx_ring_phys);
-    kprintln!("  Packets TX:   {} ({} bytes)", dev.tx_packet_count, dev.tx_bytes_count);
-    kprintln!("  Packets RX:   {} ({} bytes)", dev.rx_packet_count, dev.rx_bytes_count);
+    kprintln!("  BAR0 MMIO:    0x{:08x} (size: {} KiB)", bar0_phys, bar0_size / 1024);
+    kprintln!("  DMA RX Ring:  0x{:08x} (8 descriptors, 2048B buffers)", rx_ring);
+    kprintln!("  DMA TX Ring:  0x{:08x} (8 descriptors, 2048B buffers)", tx_ring);
+    kprintln!("  Packets TX:   {} ({} bytes)", tx_pkts, tx_bytes);
+    kprintln!("  Packets RX:   {} ({} bytes)", rx_pkts, rx_bytes);
 
-    if args == "test" || args == "send" {
+    if subcmd == "test" || subcmd == "send" {
         vga::set_color(Color::LightCyan, Color::Black);
         kprintln!("\n[NET] Transmitting test Ethernet frame (Broadcast ARP)...");
         vga::set_color(Color::White, Color::Black);
 
-        // Construct standard 60-byte broadcast ARP request packet:
+        // Construct standard 60-byte broadcast ARP request packet
         let mut test_frame = [0u8; 60];
         test_frame[0..6].copy_from_slice(&[0xFF; 6]);
         test_frame[6..12].copy_from_slice(&mac);
@@ -259,7 +438,7 @@ fn cmd_net(args: &str) {
         test_frame[32..38].copy_from_slice(&[0x00; 6]);
         test_frame[38..42].copy_from_slice(&[10, 0, 2, 2]);
 
-        match dev.transmit(&test_frame) {
+        match crate::net::send_packet(&test_frame) {
             Ok(()) => {
                 vga::set_color(Color::LightGreen, Color::Black);
                 kprintln!("[NET] Packet transmitted successfully via DMA (DD completed).");
@@ -269,7 +448,7 @@ fn cmd_net(args: &str) {
                 let mut rx_buf = [0u8; 1518];
                 let mut received = false;
                 for _ in 0..20_000_000 {
-                    if let Some(len) = dev.receive(&mut rx_buf) {
+                    if let Some(len) = crate::net::receive_packet(&mut rx_buf) {
                         vga::set_color(Color::LightGreen, Color::Black);
                         kprintln!("[NET] Received incoming Ethernet frame: {} bytes!", len);
                         vga::set_color(Color::White, Color::Black);
@@ -278,6 +457,8 @@ fn cmd_net(args: &str) {
                             "      From: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} | EtherType: 0x{:04x}",
                             rx_buf[6], rx_buf[7], rx_buf[8], rx_buf[9], rx_buf[10], rx_buf[11], eth_type
                         );
+                        // Also feed to stack
+                        crate::net::process_incoming_frame(&rx_buf[..len]);
                         received = true;
                         break;
                     }
@@ -290,22 +471,26 @@ fn cmd_net(args: &str) {
                     kprintln!("[NET] Verifying hardware RX engine via MAC loopback mode...");
                     vga::set_color(Color::White, Color::Black);
 
-                    unsafe {
-                        let rctl = dev.mmio.read32(crate::net::e1000::REG_RCTL);
-                        // Enable MAC loopback (LBM = 01b, bit 6)
-                        dev.mmio.write32(crate::net::e1000::REG_RCTL, rctl | (1 << 6));
+                    {
+                        let mut guard = crate::net::E1000_DEVICE.lock();
+                        if let Some(ref mut dev) = *guard {
+                            unsafe {
+                                let rctl = dev.mmio.read32(crate::net::e1000::REG_RCTL);
+                                dev.mmio.write32(crate::net::e1000::REG_RCTL, rctl | (1 << 6));
+                            }
+                        }
                     }
 
                     let mut loop_frame = [0u8; 64];
                     loop_frame[0..6].copy_from_slice(&mac);
                     loop_frame[6..12].copy_from_slice(&mac);
                     loop_frame[12] = 0x88;
-                    loop_frame[13] = 0xB5; // IEEE 802 Local Experimental
+                    loop_frame[13] = 0xB5;
                     loop_frame[14..28].copy_from_slice(b"E1000-LOOPBACK");
 
-                    if let Ok(()) = dev.transmit(&loop_frame) {
+                    if let Ok(()) = crate::net::send_packet(&loop_frame) {
                         for _ in 0..500_000 {
-                            if let Some(len) = dev.receive(&mut rx_buf) {
+                            if let Some(len) = crate::net::receive_packet(&mut rx_buf) {
                                 vga::set_color(Color::LightGreen, Color::Black);
                                 kprintln!("[NET] Hardware RX verification SUCCESS: Received {} byte loopback frame!", len);
                                 vga::set_color(Color::White, Color::Black);
@@ -316,10 +501,14 @@ fn cmd_net(args: &str) {
                         }
                     }
 
-                    // Restore normal wire mode (clear LBM)
-                    unsafe {
-                        let rctl = dev.mmio.read32(crate::net::e1000::REG_RCTL);
-                        dev.mmio.write32(crate::net::e1000::REG_RCTL, rctl & !(3 << 6));
+                    {
+                        let mut guard = crate::net::E1000_DEVICE.lock();
+                        if let Some(ref mut dev) = *guard {
+                            unsafe {
+                                let rctl = dev.mmio.read32(crate::net::e1000::REG_RCTL);
+                                dev.mmio.write32(crate::net::e1000::REG_RCTL, rctl & !(3 << 6));
+                            }
+                        }
                     }
                 }
 
@@ -327,6 +516,60 @@ fn cmd_net(args: &str) {
                     vga::set_color(Color::Yellow, Color::Black);
                     kprintln!("[NET] No reply received within polling window.");
                     vga::set_color(Color::White, Color::Black);
+                } else {
+                    // Dynamic ARP resolution test
+                    vga::set_color(Color::LightCyan, Color::Black);
+                    kprintln!("[NET] Testing dynamic ARP resolution for default gateway (10.0.2.2)...");
+                    vga::set_color(Color::White, Color::Black);
+                    match crate::net::resolve_arp([10, 0, 2, 2], 5_000_000) {
+                        Ok(gw_mac) => {
+                            vga::set_color(Color::LightGreen, Color::Black);
+                            kprintln!(
+                                "[NET] Gateway resolved: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                                gw_mac[0], gw_mac[1], gw_mac[2], gw_mac[3], gw_mac[4], gw_mac[5]
+                            );
+                            vga::set_color(Color::White, Color::Black);
+                        }
+                        Err(e) => {
+                            vga::set_color(Color::Yellow, Color::Black);
+                            kprintln!("[NET] Gateway resolution note: {}", e);
+                            vga::set_color(Color::White, Color::Black);
+                        }
+                    }
+
+                    // Dynamic UDP transmission test
+                    vga::set_color(Color::LightCyan, Color::Black);
+                    kprintln!("[NET] Testing UDP datagram transmission to gateway (10.0.2.2:5000)...");
+                    vga::set_color(Color::White, Color::Black);
+                    match crate::net::send_udp([10, 0, 2, 2], 5000, 49152, b"MicroOS-UDP-Test") {
+                        Ok(()) => {
+                            vga::set_color(Color::LightGreen, Color::Black);
+                            kprintln!("[NET] UDP datagram transmitted successfully via DMA.");
+                            vga::set_color(Color::White, Color::Black);
+                        }
+                        Err(e) => {
+                            vga::set_color(Color::Yellow, Color::Black);
+                            kprintln!("[NET] UDP transmission note: {}", e);
+                            vga::set_color(Color::White, Color::Black);
+                        }
+                    }
+
+                    // Dynamic ICMP Ping test
+                    vga::set_color(Color::LightCyan, Color::Black);
+                    kprintln!("[NET] Testing ICMP Echo Ping to default gateway (10.0.2.2)...");
+                    vga::set_color(Color::White, Color::Black);
+                    match crate::net::ping([10, 0, 2, 2], 10_000_000) {
+                        Ok(_spins) => {
+                            vga::set_color(Color::LightGreen, Color::Black);
+                            kprintln!("[NET] Ping reply from 10.0.2.2 verified! (genuine ICMP Echo Reply)");
+                            vga::set_color(Color::White, Color::Black);
+                        }
+                        Err(e) => {
+                            vga::set_color(Color::Yellow, Color::Black);
+                            kprintln!("[NET] ICMP ping note: {}", e);
+                            vga::set_color(Color::White, Color::Black);
+                        }
+                    }
                 }
             }
             Err(e) => {
