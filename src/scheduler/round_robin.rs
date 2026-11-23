@@ -672,13 +672,15 @@ pub fn handle_timer_preemption(rsp: u64) -> u64 {
         crate::info!("    [RSP + 152] Saved SS:     0x{:016x}", ss);
     }
 
-    crate::info!(
-        "  [TIMER IRQ #{}] Preempted {} -> Dispatched {} (tick: {})",
-        count,
-        curr_id,
-        next_id,
-        crate::timer::get_ticks()
-    );
+    if count <= 8 {
+        crate::info!(
+            "  [TIMER IRQ #{}] Preempted {} -> Dispatched {} (tick: {})",
+            count,
+            curr_id,
+            next_id,
+            crate::timer::get_ticks()
+        );
+    }
 
     next_rsp
 }
