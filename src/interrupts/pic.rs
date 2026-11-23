@@ -15,22 +15,25 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8; // 40
 /// Interrupt vector assigned to the 8253/8254 PIT hardware timer (IRQ 0).
 pub const TIMER_INTERRUPT_ID: u8 = PIC_1_OFFSET; // 32
 
+/// Interrupt vector assigned to the PS/2 Keyboard Controller (IRQ 1).
+pub const KEYBOARD_INTERRUPT_ID: u8 = PIC_1_OFFSET + 1; // 33
+
 /// Synchronized dual 8259 PIC controller abstraction.
 pub static PICS: Mutex<ChainedPics> =
     Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 
-/// Initializes the 8259 PIC controllers, remaps IRQ offsets, and unmasks IRQ 0 (timer).
+/// Initializes the 8259 PIC controllers, remaps IRQ offsets, and unmasks IRQ 0 (timer) and IRQ 1 (keyboard).
 pub fn init() {
     unsafe {
         let mut pics = PICS.lock();
         pics.initialize();
 
         // Configure interrupt masks:
-        // Master PIC: Enable IRQ 0 (timer), mask IRQs 1..7 (keyboard, etc.)
+        // Master PIC: Enable IRQ 0 (timer) and IRQ 1 (keyboard), mask IRQs 2..7
         // Port 0x21: mask byte (0 = unmasked/enabled, 1 = masked/disabled)
-        // 0b1111_1110 = 0xFE
+        // 0b1111_1100 = 0xFC
         let mut master_mask_port = x86_64::instructions::port::Port::<u8>::new(0x21);
-        master_mask_port.write(0xFE);
+        master_mask_port.write(0xFC);
 
         // Slave PIC: Mask all IRQs 8..15
         // Port 0xA1: 0xFF

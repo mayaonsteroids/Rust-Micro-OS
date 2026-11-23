@@ -39,6 +39,10 @@ pub fn init() {
         let timer_addr = VirtAddr::new(crate::scheduler::context::timer_interrupt_entry as *const () as usize as u64);
         idt[TIMER_INTERRUPT_ID as usize].set_handler_addr(timer_addr);
 
+        // Register keyboard interrupt handler at vector 33 (IRQ 1)
+        idt[crate::interrupts::pic::KEYBOARD_INTERRUPT_ID as usize]
+            .set_handler_fn(crate::console::input::keyboard_interrupt_handler);
+
         // Register naked assembly syscall entry at vector 0x80 with Ring 3 privilege
         let syscall_addr = VirtAddr::new(crate::interrupts::syscall::syscall_interrupt_entry as *const () as usize as u64);
         idt[0x80].set_handler_addr(syscall_addr).set_privilege_level(x86_64::PrivilegeLevel::Ring3);

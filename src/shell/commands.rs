@@ -16,6 +16,9 @@ pub fn run_shell() -> ! {
     kprintln!("Type 'help' for available commands or 'run <program>'.");
     kprintln!();
 
+    // Ensure CPU interrupts are enabled for keyboard IRQ1 and timer delivery
+    x86_64::instructions::interrupts::enable();
+
     let mut line_buf = [0u8; 128];
     loop {
         vga::set_color(Color::LightCyan, Color::Black);

@@ -433,6 +433,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let _ = rust_micro_os::pci::init();
     let _ = rust_micro_os::net::init();
 
+    // Initialize PS/2 Keyboard Controller for interactive input
+    rust_micro_os::console::input::init();
+    let _ = rust_micro_os::console::input::tests::run_keyboard_unit_tests();
+
     info!("--- Milestone 16: Launching Interactive Command Shell ---");
 
     rust_micro_os::shell::run_shell();
