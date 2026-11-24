@@ -375,6 +375,34 @@ impl Desktop {
 
             // App-specific interactive mouse handling
             match self.active_app {
+                AppId::Network => {
+                    let cx = Window::CLIENT_PIXEL_X;
+                    let cy = Window::CLIENT_PIXEL_Y;
+                    let btn_y = cy + 442;
+                    if y >= btn_y && y <= btn_y + 36 {
+                        if x >= cx + 24 && x <= cx + 24 + 180 {
+                            self.network.renew_ip();
+                            crate::info!("[MOUSE] Network: Clicked Renew IP");
+                            self.render();
+                            return;
+                        } else if x >= cx + 236 && x <= cx + 236 + 190 {
+                            self.network.ping_gateway();
+                            crate::info!("[MOUSE] Network: Clicked Ping Gateway");
+                            self.render();
+                            return;
+                        } else if x >= cx + 458 && x <= cx + 458 + 180 {
+                            self.network.test_dns();
+                            crate::info!("[MOUSE] Network: Clicked Test DNS");
+                            self.render();
+                            return;
+                        } else if x >= cx + 670 && x <= cx + 670 + 180 {
+                            self.network.refresh();
+                            crate::info!("[MOUSE] Network: Clicked Refresh");
+                            self.render();
+                            return;
+                        }
+                    }
+                }
                 AppId::Music => {
                     let cx = Window::CLIENT_PIXEL_X;
                     let cy = Window::CLIENT_PIXEL_Y;
@@ -630,6 +658,9 @@ pub fn run_desktop() {
                             }
                             AppId::Music => {
                                 dt.music.handle_key(key);
+                            }
+                            AppId::Network => {
+                                dt.network.handle_key(key);
                             }
                             _ => {}
                         }

@@ -419,7 +419,8 @@ pub fn acquire_dhcp_lease(timeout_spins: usize) -> Result<DhcpLease, &'static st
         if let Some(len) = super::receive_packet(&mut rx_buf) {
             process_incoming_frame(&rx_buf[..len]);
             if let Some(resp) = *LAST_DHCP_RESPONSE.lock() {
-                if resp.xid == xid && resp.msg_type == Some(DHCP_MSG_OFFER) {
+                // Validate XID, Client Hardware MAC address, and DHCPOFFER message type
+                if resp.xid == xid && resp.chaddr == cfg.mac && resp.msg_type == Some(DHCP_MSG_OFFER) {
                     offer_found = Some(resp);
                     break;
                 }
@@ -444,7 +445,8 @@ pub fn acquire_dhcp_lease(timeout_spins: usize) -> Result<DhcpLease, &'static st
         if let Some(len) = super::receive_packet(&mut rx_buf) {
             process_incoming_frame(&rx_buf[..len]);
             if let Some(resp) = *LAST_DHCP_RESPONSE.lock() {
-                if resp.xid == xid && resp.msg_type == Some(DHCP_MSG_ACK) {
+                // Validate XID, Client Hardware MAC address, and DHCPACK message type
+                if resp.xid == xid && resp.chaddr == cfg.mac && resp.msg_type == Some(DHCP_MSG_ACK) {
                     ack_found = Some(resp);
                     break;
                 }

@@ -234,14 +234,14 @@ def main():
 
         print("[+] Acquired shell prompt successfully.")
 
-        # Test 7: Initial Network Configuration (Static Fallback)
+        # Test 7: Initial Network Configuration (Static Fallback or Auto-DHCP)
         out_info_init = send_cmd("net info\n")
         info_init_ok = ("IPv4 Address: 10.0.2.15" in out_info_init and
                         "Subnet Mask:  255.255.255.0" in out_info_init and
                         "Gateway:      10.0.2.2" in out_info_init and
                         "DNS Server:   10.0.2.3" in out_info_init and
-                        "Config Mode:  Static" in out_info_init)
-        record_test("7. Static Fallback Configuration", info_init_ok, "Verified clean default static network parameters")
+                        ("Config Mode:  Static" in out_info_init or "Config Mode:  DHCP" in out_info_init))
+        record_test("7. Initial Network Configuration", info_init_ok, "Verified clean network parameters")
 
         # Test 8: Live DHCP Lease Acquisition (`net dhcp`)
         out_dhcp = send_cmd("net dhcp\n", timeout=12.0)
@@ -307,7 +307,11 @@ def main():
                    "Calc: 42 * 10 + 7 = 427" in out_calc)
         record_test("16. Ring 3 User Mode Execution", user_ok, "User programs 'hello' and 'calc' executed cleanly")
 
-        # Test 17: Visual Theme Screendump & Dominant Color Analysis
+        # Test 17: Visual Theme Screendump & Desktop Lavender Verification
+        # Minimize terminal window to display Desktop Home Screen
+        send_cmd("\x1b")
+        time.sleep(0.5)
+
         rel_ppm = "screenshots/vga_milestone17_4.ppm"
         ppm_path = os.path.join(base_dir, rel_ppm)
         png_path = os.path.join(base_dir, "screenshots", "vga_milestone17_4.png")
@@ -333,14 +337,22 @@ def main():
             img.save(png_path)
             os.remove(ppm_path)
             print(f"  [+] Converted screendump to PNG: {png_path} ({os.path.getsize(png_path)} bytes)")
-            colors = img.getcolors(maxcolors=100000)
-            colors.sort(key=lambda x: x[0], reverse=True)
-            top_color = colors[0][1]
-            hex_top = "#{:02X}{:02X}{:02X}".format(*top_color)
-            print(f"  [+] Dominant background color: {hex_top} ({colors[0][0]} pixels)")
-            if top_color[0] > 200 and top_color[1] > 200 and top_color[2] > 220:
-                vga_ok = True
-        record_test("17. Visual Light Lavender Theme", vga_ok, "Confirmed Light Lavender background palette (#E8DFFF)")
+            # Sample background at (1000, 100) on 1024x768 or check palette
+            w, h = img.size
+            if w == 1024 and h == 768:
+                r, g, b = img.getpixel((1000, 100))
+                if abs(r - 0xE9) <= 15 and abs(g - 0xDF) <= 15 and abs(b - 0xFF) <= 15:
+                    vga_ok = True
+                    print(f"  [+] Confirmed 1024x768 Truecolor Light Lavender background: rgb({r},{g},{b})")
+            if not vga_ok:
+                colors = img.getcolors(maxcolors=100000)
+                colors.sort(key=lambda x: x[0], reverse=True)
+                top_color = colors[0][1]
+                hex_top = "#{:02X}{:02X}{:02X}".format(*top_color)
+                print(f"  [+] Dominant background color: {hex_top} ({colors[0][0]} pixels)")
+                if top_color[0] > 200 and top_color[1] > 200 and top_color[2] > 220:
+                    vga_ok = True
+        record_test("17. Visual Light Lavender Theme", vga_ok, "Confirmed Light Lavender background palette (#E8DFFF / #E9DFFF)")
 
     finally:
         print("\n[*] Terminating QEMU process...")

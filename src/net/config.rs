@@ -14,6 +14,7 @@ pub enum ConfigMode {
     Static,
     DhcpPending,
     DhcpConfigured,
+    DhcpFailed,
 }
 
 impl ConfigMode {
@@ -22,6 +23,7 @@ impl ConfigMode {
             ConfigMode::Static => "Static (Fallback)",
             ConfigMode::DhcpPending => "DHCP (Acquiring...)",
             ConfigMode::DhcpConfigured => "DHCP (Dynamic Lease Active)",
+            ConfigMode::DhcpFailed => "DHCP (Failed / Fallback)",
         }
     }
 }
@@ -112,4 +114,10 @@ pub fn apply_dhcp_lease(lease: &DhcpLease) {
     }
     // Refresh ARP cache to prevent stale IP-to-MAC associations
     super::arp::ARP_CACHE.lock().clear();
+}
+
+/// Marks DHCP as failed while safely preserving the fallback static IP configuration.
+pub fn set_dhcp_failed() {
+    let mut cfg = NETWORK_CONFIG.lock();
+    cfg.mode = ConfigMode::DhcpFailed;
 }

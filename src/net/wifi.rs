@@ -2,9 +2,9 @@
 //!
 //! Provides truthful, real-time interface telemetry, identifying the
 //! active hypervisor / NAT environment, IP/Gateway/DNS parameters,
-//! live DMA packet counters, and Windows Host Wi-Fi Helper status.
+//! live DMA packet counters, and VirtualBox / QEMU NAT architecture.
 
-use crate::net::{get_config, get_mac_address, get_statistics, E1000_DEVICE};
+use crate::net::{get_config, get_mac_address, get_statistics, is_device_present, is_link_up};
 
 fn write_bytes(dst: &mut [u8], offset: &mut usize, src: &[u8]) {
     for &b in src {
@@ -60,30 +60,27 @@ fn write_hex2(dst: &mut [u8], offset: &mut usize, val: u8) {
 pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
     let cfg = get_config();
     let mac = get_mac_address().unwrap_or(cfg.mac);
-    let stats = get_statistics().unwrap_or((70, 4394, 65, 5058));
-
-    let link_up = {
-        let guard = E1000_DEVICE.lock();
-        if let Some(dev) = guard.as_ref() {
-            dev.is_link_up()
-        } else {
-            true // default active in QEMU/VirtualBox
-        }
-    };
+    let dev_present = is_device_present();
+    let link_up = is_link_up();
+    let stats = get_statistics();
 
     // Detect virtualized hypervisor environment from MAC address vendor OUI
     let is_vbox = mac[0] == 0x08 && mac[1] == 0x00 && mac[2] == 0x27;
     let is_qemu = mac[0] == 0x52 && mac[1] == 0x54 && mac[2] == 0x00;
 
     let env_str = if is_vbox {
-        "Oracle VirtualBox (NAT Adapter)"
+        "Oracle VirtualBox (NAT Virtual Ethernet)"
     } else if is_qemu {
         "QEMU Hypervisor (SLIRP User Networking)"
-    } else {
+    } else if dev_present {
         "Standard PCI Ethernet (Intel 82540EM Gigabit)"
+    } else {
+        "No Ethernet Hardware Detected"
     };
 
-    let status_str = if link_up {
+    let status_str = if !dev_present {
+        "DEVICE NOT DETECTED"
+    } else if link_up {
         if is_vbox {
             "CONNECTED (VirtualBox NAT Active)"
         } else if is_qemu {
@@ -95,10 +92,10 @@ pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
         "DISCONNECTED (Link Down)"
     };
 
-    emit("=== NETWORK CONFIGURATION & WI-FI DIAGNOSTICS ===");
+    emit("=== NETWORK CONFIGURATION & VIRTUAL ETHERNET DIAGNOSTICS ===");
     
     // Status line
-    let mut line = [0u8; 80];
+    let mut line = [0u8; 96];
     let mut off = 0;
     write_bytes(&mut line, &mut off, b"Connection Status: ");
     write_bytes(&mut line, &mut off, status_str.as_bytes());
@@ -111,7 +108,11 @@ pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
     if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
 
     // Interface Name
-    emit("Network Interface: eth0 (Intel 82540EM 1000 Mbps Full Duplex)");
+    if dev_present {
+        emit("Network Interface: eth0 (Intel 82540EM 1000 Mbps Full Duplex)");
+    } else {
+        emit("Network Interface: None (PCI 0x8086:0x100E not present)");
+    }
 
     // IPv4 Address
     off = 0;
@@ -159,29 +160,34 @@ pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
     }
     if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
 
-    // Traffic Counters
+    // Real Traffic Counters (No fake .max() or fallback constants)
     off = 0;
-    write_bytes(&mut line, &mut off, b"DMA Traffic:       Rx: ");
-    write_u64(&mut line, &mut off, stats.2.max(65));
-    write_bytes(&mut line, &mut off, b"p (");
-    write_u64(&mut line, &mut off, stats.3.max(5058));
-    write_bytes(&mut line, &mut off, b"B) | Tx: ");
-    write_u64(&mut line, &mut off, stats.0.max(70));
-    write_bytes(&mut line, &mut off, b"p (");
-    write_u64(&mut line, &mut off, stats.1.max(4394));
-    write_bytes(&mut line, &mut off, b"B)");
+    write_bytes(&mut line, &mut off, b"DMA Traffic:       ");
+    if let Some((tx_p, tx_b, rx_p, rx_b)) = stats {
+        write_bytes(&mut line, &mut off, b"Rx: ");
+        write_u64(&mut line, &mut off, rx_p);
+        write_bytes(&mut line, &mut off, b"p (");
+        write_u64(&mut line, &mut off, rx_b);
+        write_bytes(&mut line, &mut off, b"B) | Tx: ");
+        write_u64(&mut line, &mut off, tx_p);
+        write_bytes(&mut line, &mut off, b"p (");
+        write_u64(&mut line, &mut off, tx_b);
+        write_bytes(&mut line, &mut off, b"B)");
+    } else {
+        write_bytes(&mut line, &mut off, b"Unavailable (Controller Offline)");
+    }
     if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
 
-    emit("Configuration Mode:DHCP (Dynamic Lease Active)");
+    // Configuration Mode from real NetworkConfig
+    off = 0;
+    write_bytes(&mut line, &mut off, b"Configuration:     ");
+    write_bytes(&mut line, &mut off, cfg.mode.as_str().as_bytes());
+    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+
     emit("--------------------------------------------------");
-    emit("Host Wi-Fi Bridge: OFFLINE (Gateway socket 10.0.2.2:19820)");
-    emit("Host Wi-Fi SSID:   [Not Connected - Start tools/windows_host_wifi_helper.py]");
-    emit("Host Wi-Fi Signal: N/A (0% [||||])");
-    emit("Security Protocol: N/A");
-    
-    if is_vbox {
-        emit("Notice: Guest communicates via VirtualBox NAT; guest has no direct Wi-Fi hardware.");
-    } else {
-        emit("Notice: Guest communicates via QEMU SLIRP; guest has no direct Wi-Fi hardware.");
-    }
+    emit("Architecture:      VirtualBox / QEMU Virtual Ethernet NAT Bridge");
+    emit("Physical Uplink:   Host Computer Network (Wi-Fi / Ethernet)");
+    emit("Notice: BubbleOS operates via an emulated Intel 82540EM Ethernet adapter.");
+    emit("Hypervisor NAT automatically routes packets through your host connection.");
+    emit("Guest does not possess native physical Wi-Fi hardware; host Wi-Fi is shared.");
 }

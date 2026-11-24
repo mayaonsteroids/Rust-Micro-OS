@@ -97,7 +97,7 @@ http get example.com /
 wifi
 ```
 
-`wifi` displays network configuration and Wi-Fi/host-bridge diagnostics. The guest network interface itself is emulated Ethernet; BubbleOS does not currently contain a native Wi-Fi hardware driver.
+`wifi` and `net` display verified network configuration, hardware link status, and VirtualBox / hypervisor NAT bridge diagnostics. The guest network interface is genuine emulated Intel 82540EM Gigabit Ethernet, connected to the hypervisor NAT router which transparently shares the host computer's Wi-Fi or LAN connection. The graphical Network Control Centre provides one-click interactive actions: `[ RENEW IP ]`, `[ PING GATEWAY ]`, `[ TEST DNS ]`, and `[ REFRESH ]`.
 
 ## Browser
 
@@ -217,6 +217,7 @@ python3 scripts/test_milestone17_4.py
 python3 scripts/test_milestone17_5.py
 python3 scripts/test_milestone17_6.py
 python3 scripts/test_pixel_gui.py
+python3 scripts/test_network_gui.py
 python3 scripts/test_song_playback.py
 python3 scripts/test_mouse_ps2.py
 python3 scripts/test_milestone17_phase1.py
