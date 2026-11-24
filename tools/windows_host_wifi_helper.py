@@ -75,14 +75,44 @@ def remove_pid():
     except Exception:
         pass
 
+def stop_helper():
+    """Stops any currently running helper process using PID file without flashing any windows."""
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE, "r", encoding="utf-8") as f:
+                pid = int(f.read().strip())
+            log_entry(f"Terminating helper PID {pid} via stop_helper()...")
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+                )
+            else:
+                os.kill(pid, 9)
+        except Exception as e:
+            log_entry(f"Error stopping PID from file: {e}")
+        finally:
+            remove_pid()
+
 def get_wifi_info_via_netsh():
-    """Attempts to retrieve Wi-Fi connection info via netsh wlan show interfaces."""
+    """Attempts to retrieve Wi-Fi connection info via netsh wlan show interfaces without displaying any console window."""
     try:
+        startupinfo = None
+        creationflags = 0
+        if os.name == "nt":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0  # SW_HIDE
+
         proc = subprocess.run(
             ["netsh", "wlan", "show", "interfaces"],
             capture_output=True,
             text=True,
             timeout=3,
+            creationflags=creationflags,
+            startupinfo=startupinfo,
         )
         if proc.returncode != 0 or not proc.stdout:
             return None
@@ -346,11 +376,13 @@ def get_wifi_info_via_wlanapi():
         return None
 
 def get_wifi_info():
-    """Primary provider: tries netsh first, then native wlanapi."""
+    """Primary provider: tries in-process Native Wifi API (wlanapi.dll) first (0 child processes, 0 windows), then netsh with CREATE_NO_WINDOW."""
+    wlan_info = get_wifi_info_via_wlanapi()
+    if wlan_info and wlan_info.get("status") == "connected" and wlan_info.get("ssid") not in ("", "None"):
+        return wlan_info
     info = get_wifi_info_via_netsh()
     if info and info.get("status") == "connected" and info.get("ssid") not in ("", "None"):
         return info
-    wlan_info = get_wifi_info_via_wlanapi()
     if wlan_info:
         return wlan_info
     if info:
@@ -367,7 +399,7 @@ def get_wifi_info():
         "interface": "Wi-Fi Adapter",
     }
 
-# Thread-safe telemetry cache updated in background every 2 seconds
+# Thread-safe telemetry cache updated in background every 3 seconds
 LATEST_WIFI_INFO = None
 WIFI_INFO_LOCK = threading.Lock()
 
@@ -381,7 +413,7 @@ def wifi_telemetry_worker():
                 LATEST_WIFI_INFO = fresh_info
         except Exception as e:
             log_entry(f"Background telemetry worker error: {e}")
-        time.sleep(2.0)
+        time.sleep(3.0)
 
 class WifiHelperHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
@@ -443,4 +475,7 @@ def main():
     remove_pid()
 
 if __name__ == "__main__":
+    if "--stop" in sys.argv:
+        stop_helper()
+        sys.exit(0)
     main()

@@ -9,6 +9,7 @@ echo.
 
 set "SCRIPT_DIR=%~dp0"
 set "HELPER_SCRIPT=%SCRIPT_DIR%windows_host_wifi_helper.py"
+set "PID_FILE=%SCRIPT_DIR%wifi_helper.pid"
 
 if not exist "%HELPER_SCRIPT%" (
     echo [-] Error: windows_host_wifi_helper.py not found at:
@@ -17,7 +18,7 @@ if not exist "%HELPER_SCRIPT%" (
     exit /b 1
 )
 
-:: Find pythonw.exe
+REM Find pythonw.exe
 set "PYTHONW="
 where pythonw.exe >nul 2>&1
 if !errorlevel! equ 0 (
@@ -63,44 +64,41 @@ echo [*] Detected Python Runner : "%PYTHONW%"
 echo [*] Target Helper Script   : "%HELPER_SCRIPT%"
 echo.
 
-:: 1. Add to HKCU Run key for automatic logon launch without administrator rights
-echo [*] Configuring User Logon Autostart (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)...
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "BubbleOS_WiFi_Helper" /t REG_SZ /d "\"%PYTHONW%\" \"%HELPER_SCRIPT%\"" /f >nul
-if !errorlevel! neq 0 (
-    echo [-] Warning: Failed to set HKCU Run key. Attempting Startup folder fallback...
-) else (
-    echo [+] Successfully registered in Windows Logon Autostart.
-)
+REM 1. Remove any legacy or duplicate HKCU Run registry entry so there is only ONE autostart mechanism
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "BubbleOS_WiFi_Helper" /f >nul 2>&1
 
-:: 2. Also create a silent VBS launcher in Startup folder as a robust redundancy
+REM 2. Configure a single, 100% hidden VBScript launcher in the user's Startup folder
 set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "VBS_FILE=%STARTUP_FOLDER%\BubbleOS_WiFi_Helper.vbs"
 
-if exist "%STARTUP_FOLDER%" (
-    echo [*] Creating silent background Startup launcher in:
-    echo     "%VBS_FILE%"
-    (
-        echo Set WshShell = CreateObject^("WScript.Shell"^)
-        echo WshShell.Run """" ^& "%PYTHONW%" ^& """ """ ^& "%HELPER_SCRIPT%" ^& """", 0, False
-    ) > "%VBS_FILE%"
-    echo [+] Startup launcher created successfully.
+if not exist "%STARTUP_FOLDER%" (
+    echo [-] Fatal: Startup folder not found: "%STARTUP_FOLDER%"
+    pause
+    exit /b 1
 )
 
-:: 3. Terminate any previous helper instance to ensure fresh version runs
-set "PID_FILE=%SCRIPT_DIR%wifi_helper.pid"
+echo [*] Installing silent hidden VBScript launcher in:
+echo     "%VBS_FILE%"
+(
+    echo Set WshShell = CreateObject^("WScript.Shell"^)
+    echo WshShell.Run """" ^& "%PYTHONW%" ^& """ """ ^& "%HELPER_SCRIPT%" ^& """", 0, False
+) > "%VBS_FILE%"
+echo [+] Startup launcher installed successfully.
+
+REM 3. Terminate any previous helper instance to ensure fresh code runs
 if exist "%PID_FILE%" (
     set /p OLD_PID=<"%PID_FILE%"
     if defined OLD_PID taskkill /F /PID !OLD_PID! >nul 2>&1
     del /f /q "%PID_FILE%" >nul 2>&1
 )
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*windows_host_wifi_helper.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+"%PYTHONW%" "%HELPER_SCRIPT%" --stop >nul 2>&1
 
-:: 4. Launch the helper immediately in the background
+REM 4. Launch the helper immediately using wscript.exe (genuinely hidden, 0 console windows)
 echo.
-echo [*] Starting BubbleOS Wi-Fi Helper in background now...
-start "" "%PYTHONW%" "%HELPER_SCRIPT%"
+echo [*] Starting BubbleOS Wi-Fi Helper silently via wscript.exe (hidden window mode)...
+wscript.exe "%VBS_FILE%"
 
-:: 5. Verify helper responsiveness on port 19820
+REM 5. Verify helper responsiveness on port 19820
 echo [*] Verifying helper endpoint at http://127.0.0.1:19820/ ...
 powershell -NoProfile -Command "for ($i = 0; $i -lt 6; $i++) { Start-Sleep -Milliseconds 500; try { $res = Invoke-RestMethod -Uri 'http://127.0.0.1:19820/' -TimeoutSec 2; Write-Host '    [+] Connected to SSID:' $res.ssid; Write-Host '    [+] Signal Strength  :' ($res.signal.ToString() + '%%'); Write-Host '    [+] Host Adapter     :' $res.interface; break } catch { if ($i -eq 5) { Write-Host '    [!] Helper started (PID written to tools\wifi_helper.pid)' } } }"
 
