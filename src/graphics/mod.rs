@@ -5,6 +5,7 @@
 //! 8x16 bitmap fonts, and handcrafted application icons.
 
 pub mod color;
+pub mod cursor;
 pub mod draw;
 pub mod font;
 pub mod framebuffer;

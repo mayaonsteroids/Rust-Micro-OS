@@ -38,6 +38,16 @@ The desktop includes eight application areas:
 - **Settings** — desktop settings interface.
 - **About** — BubbleOS version and system information.
 
+### PS/2 Mouse Support and Interactive Desktop
+
+BubbleOS includes full PS/2 mouse hardware support:
+- **Visible Pointer**: A classic 12×19 pixel-based arrow pointer with sub-microsecond double-buffer restoration for zero-flicker tracking.
+- **Clickable Dock**: Clicking any of the 8 dock icons (Terminal, Network, Browser, Files, Music Player, SysMon, Settings, About) directly opens the application window.
+- **Window Framing Controls**: Clickable minimize `[-]` and close `[X]` buttons in the window title bar.
+- **Dashboard Quick-Launch**: Clicking any of the 8 home screen tiles opens the corresponding application.
+- **Music Player Controls**: Clickable Play/Pause, Next, Previous, Repeat buttons, interactive volume slider, and direct playlist track selection.
+- **Co-existent Controls**: Keyboard shortcuts (`1`..`8`, `Tab`, `Esc`, `Enter`) continue functioning seamlessly alongside the mouse.
+
 Selected screenshots:
 
 | Desktop | Terminal |
@@ -53,7 +63,7 @@ Selected screenshots:
 - Rust `no_std` kernel targeting x86_64 long mode.
 - BIOS El Torito optical boot with a 16-bit real-mode sector-translation shim.
 - VGA text console and 16550 UART serial output.
-- PS/2 keyboard input and interrupt handling.
+- PS/2 keyboard and mouse input subsystems with IRQ 1 and IRQ 12 interrupt handling.
 - 1024 × 768, 32-bit BGA framebuffer graphics, pixel drawing, window compositor, and desktop UI.
 - Physical frame allocation, paging, kernel heap allocation, and address-space structures.
 - Task lifecycle management, ready queue, context switching, timer interrupts, and round-robin scheduling.
@@ -208,6 +218,7 @@ python3 scripts/test_milestone17_5.py
 python3 scripts/test_milestone17_6.py
 python3 scripts/test_pixel_gui.py
 python3 scripts/test_song_playback.py
+python3 scripts/test_mouse_ps2.py
 python3 scripts/test_milestone17_phase1.py
 python3 scripts/test_iso.py
 ```

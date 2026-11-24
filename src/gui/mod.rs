@@ -93,6 +93,8 @@ impl Desktop {
             crate::graphics::with_framebuffer(|fb| {
                 self.render_pixel(fb);
                 fb.present();
+                let (mx, my) = crate::console::mouse::get_position();
+                crate::graphics::cursor::draw_cursor(fb, mx, my);
             });
         }
 
@@ -135,6 +137,8 @@ impl Desktop {
                     let window = Window::standard(self.active_app.window_title());
                     self.music.draw_pixel_progress(&window, fb);
                     fb.present();
+                    let (mx, my) = crate::console::mouse::get_position();
+                    crate::graphics::cursor::draw_cursor(fb, mx, my);
                 });
             } else {
                 let mut comp = COMPOSITOR.lock();
@@ -330,6 +334,157 @@ impl Desktop {
         // Bottom Navigation Bar (Row 23)
         comp.draw_string(14, 23, "[1-8] Launch App  |  [Tab] Cycle Apps  |  [Esc] Minimize Window", Color::LightCyan, Color::Black);
     }
+
+    /// Handles left mouse button click events with hit-testing across dock, window controls, and dashboard.
+    pub fn handle_mouse_click(&mut self, x: usize, y: usize) {
+        // 1. Left Application Dock (x: 0..88)
+        if x < 88 {
+            if y >= 36 && y < 36 + 8 * 86 {
+                let idx = (y - 36) / 86;
+                if idx < 8 {
+                    let target_app = AppId::from_index(idx as u8);
+                    self.active_app = target_app;
+                    self.is_window_open = true;
+                    crate::info!("[MOUSE] Dock click -> Activated {}", target_app.title());
+                    self.render();
+                    return;
+                }
+            }
+        }
+
+        // 2. Active Window Header Controls & Application Interactivity
+        if self.is_window_open {
+            // Close Button [X] at top-right (x: 965..1000, y: 20..52)
+            if x >= 965 && x <= 1000 && y >= 20 && y <= 52 {
+                self.is_window_open = false;
+                if self.active_app == AppId::Terminal {
+                    self.terminal.should_exit_desktop = false;
+                }
+                crate::info!("[MOUSE] Clicked Close [X] -> Returned to Home Screen.");
+                self.render();
+                return;
+            }
+
+            // Minimize Button [-] at top-right (x: 935..965, y: 20..52)
+            if x >= 935 && x <= 965 && y >= 20 && y <= 52 {
+                self.is_window_open = false;
+                crate::info!("[MOUSE] Clicked Minimize [-] -> Minimized to Home Screen.");
+                self.render();
+                return;
+            }
+
+            // App-specific interactive mouse handling
+            match self.active_app {
+                AppId::Music => {
+                    let cx = Window::CLIENT_PIXEL_X;
+                    let cy = Window::CLIENT_PIXEL_Y;
+                    let cw = Window::CLIENT_PIXEL_WIDTH;
+
+                    let ctrl_y = cy + 424;
+                    let bar_y = ctrl_y + 16;
+                    let btn_row_y = bar_y + 36;
+                    let mid_x = cx + cw / 2;
+
+                    // Play/Pause button [mid_x - 60, mid_x + 60] (496..616), y: btn_row_y - 5 .. btn_row_y + 45
+                    if x >= mid_x - 60 && x <= mid_x + 60 && y >= btn_row_y.saturating_sub(5) && y <= btn_row_y + 45 {
+                        let mut audio = crate::audio::AUDIO_ENGINE.lock();
+                        if audio.state == crate::audio::PlaybackState::Playing {
+                            audio.pause();
+                            crate::info!("[MOUSE] Music Player: Clicked Pause");
+                        } else {
+                            audio.play();
+                            crate::info!("[MOUSE] Music Player: Clicked Play/Resume");
+                        }
+                        drop(audio);
+                        self.render();
+                        return;
+                    }
+
+                    // Prev button [mid_x - 180, mid_x - 80] (376..476), y: btn_row_y .. btn_row_y + 40
+                    if x >= mid_x - 180 && x <= mid_x - 80 && y >= btn_row_y && y <= btn_row_y + 40 {
+                        let mut audio = crate::audio::AUDIO_ENGINE.lock();
+                        audio.prev_track();
+                        crate::info!("[MOUSE] Music Player: Clicked Prev Track");
+                        drop(audio);
+                        self.render();
+                        return;
+                    }
+
+                    // Next button [mid_x + 80, mid_x + 180] (636..736), y: btn_row_y .. btn_row_y + 40
+                    if x >= mid_x + 80 && x <= mid_x + 180 && y >= btn_row_y && y <= btn_row_y + 40 {
+                        let mut audio = crate::audio::AUDIO_ENGINE.lock();
+                        audio.next_track();
+                        crate::info!("[MOUSE] Music Player: Clicked Next Track");
+                        drop(audio);
+                        self.render();
+                        return;
+                    }
+
+                    // Repeat button [mid_x + 200, mid_x + 320] (756..876), y: btn_row_y .. btn_row_y + 40
+                    if x >= mid_x + 200 && x <= mid_x + 320 && y >= btn_row_y && y <= btn_row_y + 40 {
+                        let mut audio = crate::audio::AUDIO_ENGINE.lock();
+                        let rep = audio.toggle_repeat();
+                        crate::info!("[MOUSE] Music Player: Clicked Repeat -> {}", if rep { "ON" } else { "OFF" });
+                        drop(audio);
+                        self.render();
+                        return;
+                    }
+
+                    // Volume slider [vol_x, vol_x + 200] (406..606), y: btn_row_y + 54 .. btn_row_y + 74
+                    let vol_x = mid_x - 150;
+                    let vol_y = btn_row_y + 58;
+                    if x >= vol_x && x <= vol_x + 200 && y >= vol_y.saturating_sub(4) && y <= vol_y + 16 {
+                        let pct = (((x - vol_x) * 100) / 200).min(100) as u8;
+                        let mut audio = crate::audio::AUDIO_ENGINE.lock();
+                        audio.set_volume(pct);
+                        crate::info!("[MOUSE] Music Player: Clicked Volume -> {}%", pct);
+                        drop(audio);
+                        self.render();
+                        return;
+                    }
+
+                    // Playlist card rows: pl_start = cy + 224 + 44 = cy + 268
+                    let pl_start = cy + 268;
+                    if x >= cx + 24 && x <= cx + cw - 24 && y >= pl_start && y < pl_start + crate::audio::melody::PLAYLIST.len() * 38 {
+                        let row_idx = (y - pl_start) / 38;
+                        if row_idx < crate::audio::melody::PLAYLIST.len() {
+                            let mut audio = crate::audio::AUDIO_ENGINE.lock();
+                            audio.current_track_idx = row_idx;
+                            audio.play();
+                            crate::info!("[MOUSE] Music Player: Clicked track #{}", row_idx + 1);
+                            drop(audio);
+                            self.render();
+                            return;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else {
+            // 3. Desktop Home Screen Dashboard Tiles (2 columns x 4 rows)
+            let cx = 136;
+            let cy = 72;
+            let col_w = 380;
+            let tile_h = 100;
+            let col0_x = cx + 24;
+            let col1_x = cx + 840 - 24 - col_w;
+
+            for (i, app) in AppId::ALL.iter().enumerate() {
+                let col = i % 2;
+                let row = i / 2;
+                let tile_x = if col == 0 { col0_x } else { col1_x };
+                let tile_y = cy + 76 + row * 114;
+
+                if x >= tile_x && x < tile_x + col_w && y >= tile_y && y < tile_y + tile_h {
+                    self.active_app = *app;
+                    self.is_window_open = true;
+                    crate::info!("[MOUSE] Dashboard tile click -> Opened {}", app.title());
+                    self.render();
+                    return;
+                }
+            }
+        }
+    }
 }
 
 /// Global desktop state instance.
@@ -360,6 +515,7 @@ pub fn run_desktop() {
     x86_64::instructions::interrupts::enable();
 
     let mut last_audio_tick = crate::timer::get_ticks();
+    let (mut last_mouse_x, mut last_mouse_y) = crate::console::mouse::get_position();
 
     loop {
         // 1. Advance audio playback tick with hardware timer ticks
@@ -375,7 +531,33 @@ pub fn run_desktop() {
             crate::audio::tick();
         }
 
-        // 2. Poll for keyboard input (non-blocking)
+        // 2. Poll for mouse movements and button clicks (non-blocking)
+        let mouse_state = crate::console::mouse::get_mouse_state();
+        let mx = mouse_state.x;
+        let my = mouse_state.y;
+
+        if mx != last_mouse_x || my != last_mouse_y {
+            if crate::graphics::is_active() {
+                crate::graphics::with_framebuffer(|fb| {
+                    crate::graphics::cursor::update_cursor_position(
+                        fb,
+                        last_mouse_x,
+                        last_mouse_y,
+                        mx,
+                        my,
+                    );
+                });
+            }
+            last_mouse_x = mx;
+            last_mouse_y = my;
+        }
+
+        if mouse_state.left_clicked {
+            let mut dt = DESKTOP.lock();
+            dt.handle_mouse_click(mx, my);
+        }
+
+        // 3. Poll for keyboard input (non-blocking)
         if let Some(key) = crate::console::try_read_byte() {
             let mut dt = DESKTOP.lock();
 

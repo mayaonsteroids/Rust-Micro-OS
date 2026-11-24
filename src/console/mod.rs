@@ -2,10 +2,12 @@
 
 pub mod input;
 pub mod logger;
+pub mod mouse;
 pub mod serial;
 pub mod vga;
 
 pub use input::{read_byte, read_line, try_read_byte};
+pub use mouse::{get_mouse_state, MouseState};
 
 /// Prints simultaneously to both the VGA screen and the serial console.
 #[macro_export]

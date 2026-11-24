@@ -76,7 +76,6 @@ impl TerminalApp {
         self.append_line("            BUBBLEOS INTERACTIVE TERMINAL             ", Color::LightCyan);
         self.append_line("==================================================", Color::LightCyan);
         self.append_line("Logged in as: maya | Host: micro-os | Arch: x86_64", Color::White);
-        self.append_line("Type 'wifi' for network info, 'help' for commands", Color::DarkGray);
         self.append_line("", Color::White);
         // Print prompt to serial so serial monitors / test suites acquire prompt immediately
         crate::serial_print!("micro-os> ");

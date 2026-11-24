@@ -441,6 +441,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     rust_micro_os::console::input::init();
     let _ = rust_micro_os::console::input::tests::run_keyboard_unit_tests();
 
+    // Initialize PS/2 Mouse Controller for interactive cursor
+    rust_micro_os::console::mouse::init();
+    let _ = rust_micro_os::console::mouse::tests::run_mouse_unit_tests();
+
     info!("--- Milestone 16: Launching Desktop Home Screen ---");
 
     // Priority 1: Automatically launch desktop after kernel initialization

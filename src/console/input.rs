@@ -136,6 +136,52 @@ pub fn init() {
     crate::info!("[KEYBOARD] PS/2 8042 controller initialized (IRQ1 unmasked, translation enabled).");
 }
 
+/// Decodes a raw keyboard scancode and enqueues resulting ASCII/control characters into `KEY_BUFFER`.
+pub fn process_keyboard_byte(scancode: u8) {
+    let mut keyboard = KEYBOARD.lock();
+    if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
+        if let Some(key) = keyboard.process_keyevent(key_event) {
+            match key {
+                DecodedKey::Unicode(c) => {
+                    if c == '\n' || c == '\r' {
+                        KEY_BUFFER.lock().push(b'\n');
+                    } else if c == '\x08' {
+                        KEY_BUFFER.lock().push(b'\x08');
+                    } else if c.is_ascii() {
+                        KEY_BUFFER.lock().push(c as u8);
+                    }
+                }
+                DecodedKey::RawKey(KeyCode::Backspace) => {
+                    KEY_BUFFER.lock().push(b'\x08');
+                }
+                DecodedKey::RawKey(KeyCode::Return) => {
+                    KEY_BUFFER.lock().push(b'\n');
+                }
+                DecodedKey::RawKey(KeyCode::Escape) => {
+                    KEY_BUFFER.lock().push(b'\x1b');
+                }
+                DecodedKey::RawKey(KeyCode::ArrowUp) => {
+                    KEY_BUFFER.lock().push(0x1E); // RS - Up Arrow
+                }
+                DecodedKey::RawKey(KeyCode::ArrowDown) => {
+                    KEY_BUFFER.lock().push(0x1F); // US - Down Arrow
+                }
+                DecodedKey::RawKey(KeyCode::Numpad1) => { KEY_BUFFER.lock().push(b'1'); }
+                DecodedKey::RawKey(KeyCode::Numpad2) => { KEY_BUFFER.lock().push(b'2'); }
+                DecodedKey::RawKey(KeyCode::Numpad3) => { KEY_BUFFER.lock().push(b'3'); }
+                DecodedKey::RawKey(KeyCode::Numpad4) => { KEY_BUFFER.lock().push(b'4'); }
+                DecodedKey::RawKey(KeyCode::Numpad5) => { KEY_BUFFER.lock().push(b'5'); }
+                DecodedKey::RawKey(KeyCode::Numpad6) => { KEY_BUFFER.lock().push(b'6'); }
+                DecodedKey::RawKey(KeyCode::Numpad7) => { KEY_BUFFER.lock().push(b'7'); }
+                DecodedKey::RawKey(KeyCode::Numpad8) => { KEY_BUFFER.lock().push(b'8'); }
+                DecodedKey::RawKey(KeyCode::NumpadAdd) => { KEY_BUFFER.lock().push(b'+'); }
+                DecodedKey::RawKey(KeyCode::NumpadSubtract) => { KEY_BUFFER.lock().push(b'-'); }
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Keyboard interrupt handler registered at vector 33 (IRQ 1).
 ///
 /// Reads the scancode from port 0x60, decodes make/break scancodes using `KEYBOARD`,
@@ -149,50 +195,11 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
         let mut data_port = Port::<u8>::new(0x60);
         let scancode = unsafe { data_port.read() };
 
-        // Bit 5 = Mouse Output Buffer (ignore mouse packets if any)
-        if (status & 0x20) == 0 {
-            let mut keyboard = KEYBOARD.lock();
-            if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-                if let Some(key) = keyboard.process_keyevent(key_event) {
-                    match key {
-                        DecodedKey::Unicode(c) => {
-                            if c == '\n' || c == '\r' {
-                                KEY_BUFFER.lock().push(b'\n');
-                            } else if c == '\x08' {
-                                KEY_BUFFER.lock().push(b'\x08');
-                            } else if c.is_ascii() {
-                                KEY_BUFFER.lock().push(c as u8);
-                            }
-                        }
-                        DecodedKey::RawKey(KeyCode::Backspace) => {
-                            KEY_BUFFER.lock().push(b'\x08');
-                        }
-                        DecodedKey::RawKey(KeyCode::Return) => {
-                            KEY_BUFFER.lock().push(b'\n');
-                        }
-                        DecodedKey::RawKey(KeyCode::Escape) => {
-                            KEY_BUFFER.lock().push(b'\x1b');
-                        }
-                        DecodedKey::RawKey(KeyCode::ArrowUp) => {
-                            KEY_BUFFER.lock().push(0x1E); // RS - Up Arrow
-                        }
-                        DecodedKey::RawKey(KeyCode::ArrowDown) => {
-                            KEY_BUFFER.lock().push(0x1F); // US - Down Arrow
-                        }
-                        DecodedKey::RawKey(KeyCode::Numpad1) => { KEY_BUFFER.lock().push(b'1'); }
-                        DecodedKey::RawKey(KeyCode::Numpad2) => { KEY_BUFFER.lock().push(b'2'); }
-                        DecodedKey::RawKey(KeyCode::Numpad3) => { KEY_BUFFER.lock().push(b'3'); }
-                        DecodedKey::RawKey(KeyCode::Numpad4) => { KEY_BUFFER.lock().push(b'4'); }
-                        DecodedKey::RawKey(KeyCode::Numpad5) => { KEY_BUFFER.lock().push(b'5'); }
-                        DecodedKey::RawKey(KeyCode::Numpad6) => { KEY_BUFFER.lock().push(b'6'); }
-                        DecodedKey::RawKey(KeyCode::Numpad7) => { KEY_BUFFER.lock().push(b'7'); }
-                        DecodedKey::RawKey(KeyCode::Numpad8) => { KEY_BUFFER.lock().push(b'8'); }
-                        DecodedKey::RawKey(KeyCode::NumpadAdd) => { KEY_BUFFER.lock().push(b'+'); }
-                        DecodedKey::RawKey(KeyCode::NumpadSubtract) => { KEY_BUFFER.lock().push(b'-'); }
-                        _ => {}
-                    }
-                }
-            }
+        // Bit 5 = Mouse Output Buffer: forward to mouse subsystem if set
+        if (status & 0x20) != 0 {
+            crate::console::mouse::process_mouse_byte(scancode);
+        } else {
+            process_keyboard_byte(scancode);
         }
     }
 

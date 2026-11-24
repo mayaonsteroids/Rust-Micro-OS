@@ -43,6 +43,10 @@ pub fn init() {
         idt[crate::interrupts::pic::KEYBOARD_INTERRUPT_ID as usize]
             .set_handler_fn(crate::console::input::keyboard_interrupt_handler);
 
+        // Register mouse interrupt handler at vector 44 (IRQ 12)
+        idt[crate::interrupts::pic::MOUSE_INTERRUPT_ID as usize]
+            .set_handler_fn(crate::console::mouse::mouse_interrupt_handler);
+
         // Register naked assembly syscall entry at vector 0x80 with Ring 3 privilege
         let syscall_addr = VirtAddr::new(crate::interrupts::syscall::syscall_interrupt_entry as *const () as usize as u64);
         idt[0x80].set_handler_addr(syscall_addr).set_privilege_level(x86_64::PrivilegeLevel::Ring3);

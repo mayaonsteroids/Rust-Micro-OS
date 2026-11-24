@@ -18,27 +18,32 @@ pub const TIMER_INTERRUPT_ID: u8 = PIC_1_OFFSET; // 32
 /// Interrupt vector assigned to the PS/2 Keyboard Controller (IRQ 1).
 pub const KEYBOARD_INTERRUPT_ID: u8 = PIC_1_OFFSET + 1; // 33
 
+/// Interrupt vector assigned to the PS/2 Auxiliary Mouse Controller (IRQ 12).
+pub const MOUSE_INTERRUPT_ID: u8 = PIC_2_OFFSET + 4; // 44
+
 /// Synchronized dual 8259 PIC controller abstraction.
 pub static PICS: Mutex<ChainedPics> =
     Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 
-/// Initializes the 8259 PIC controllers, remaps IRQ offsets, and unmasks IRQ 0 (timer) and IRQ 1 (keyboard).
+/// Initializes the 8259 PIC controllers, remaps IRQ offsets, and unmasks IRQ 0 (timer), IRQ 1 (keyboard),
+/// IRQ 2 (cascade to Slave PIC), and IRQ 12 (auxiliary PS/2 mouse).
 pub fn init() {
     unsafe {
         let mut pics = PICS.lock();
         pics.initialize();
 
         // Configure interrupt masks:
-        // Master PIC: Enable IRQ 0 (timer) and IRQ 1 (keyboard), mask IRQs 2..7
-        // Port 0x21: mask byte (0 = unmasked/enabled, 1 = masked/disabled)
-        // 0b1111_1100 = 0xFC
+        // Master PIC: Enable IRQ 0 (timer), IRQ 1 (keyboard), IRQ 2 (cascade line to Slave)
+        // Mask IRQs 3..7
+        // Port 0x21: 0b1111_1000 = 0xF8 (bits 0, 1, 2 unmasked)
         let mut master_mask_port = x86_64::instructions::port::Port::<u8>::new(0x21);
-        master_mask_port.write(0xFC);
+        master_mask_port.write(0xF8);
 
-        // Slave PIC: Mask all IRQs 8..15
-        // Port 0xA1: 0xFF
+        // Slave PIC: Enable IRQ 12 (pin 4 on slave PIC, 0b0001_0000 = 0x10)
+        // Mask IRQs 8..11, 13..15
+        // Port 0xA1: 0b1110_1111 = 0xEF (bit 4 unmasked)
         let mut slave_mask_port = x86_64::instructions::port::Port::<u8>::new(0xA1);
-        slave_mask_port.write(0xFF);
+        slave_mask_port.write(0xEF);
     }
 }
 
