@@ -46,7 +46,7 @@ pub fn init() -> Result<(), &'static str> {
 
     if is_link_up() {
         crate::info!("[NET-INIT] E1000 hardware link active. Attempting startup DHCP exchange...");
-        match renew_dhcp(800_000) {
+        match renew_dhcp(2_500_000) {
             Ok(lease) => {
                 crate::info!(
                     "[DHCP] Startup lease acquired: IP {}.{}.{}.{} | GW {}.{}.{}.{} | DNS {}.{}.{}.{}",

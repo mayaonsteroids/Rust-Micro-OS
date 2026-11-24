@@ -8,8 +8,8 @@ use crate::gui::compositor::Compositor;
 use crate::gui::window::Window;
 use crate::kernel::identity;
 
-const MAX_LINES: usize = 20;
-const MAX_LINE_LEN: usize = 64;
+const MAX_LINES: usize = 40;
+const MAX_LINE_LEN: usize = 80;
 
 #[derive(Clone, Copy)]
 pub struct Line {
@@ -198,12 +198,14 @@ impl TerminalApp {
             "wifi" => {
                 // Comprehensive, truthful network configuration diagnostics
                 crate::net::wifi::format_wifi_diagnostics(|line| {
-                    let fg = if line.starts_with("===") {
+                    let fg = if line.starts_with("HOST") || line.starts_with("GUEST") {
                         Color::LightCyan
-                    } else if line.starts_with("Connection") || line.starts_with("Notice") {
+                    } else if line.starts_with("Status: Connected") || line.starts_with("Guest Ethernet: Connected") {
                         Color::LightGreen
-                    } else if line.starts_with("Host Wi-Fi") {
+                    } else if line.starts_with("Status: Offline") || line.starts_with("Status: Disconnected") || line.starts_with("Guest Ethernet: Disconnected") {
                         Color::LightRed
+                    } else if line.starts_with("SSID:") {
+                        Color::Yellow
                     } else {
                         Color::White
                     };

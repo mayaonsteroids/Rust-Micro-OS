@@ -118,18 +118,22 @@ def main():
         wifi_out = read_until("micro-os> ", timeout=15.0)
 
         # Verify output contains actual host Wi-Fi details
-        ssid_found = expected_ssid in wifi_out
-        status_found = "Connected (Host WLAN Active)" in wifi_out
-        bridge_heading_found = "=== HOST WI-FI CONNECTION (WINDOWS BRIDGE) ===" in wifi_out
+        ssid_found = f"SSID: {expected_ssid}" in wifi_out or expected_ssid in wifi_out
+        status_found = "Status: Connected" in wifi_out
+        bridge_heading_found = "HOST WI-FI CONNECTION" in wifi_out
+        guest_heading_found = "GUEST NETWORK" in wifi_out
+        guest_eth_found = "Guest Ethernet: Connected" in wifi_out
 
         print("\n" + "=" * 65)
         print("          BUBBLEOS GUEST RETRIEVAL VERIFICATION RESULT")
         print("=" * 65)
-        print(f"  [+] Host Bridge Header Found : {bridge_heading_found}")
-        print(f"  [+] Connected State Verified : {status_found}")
-        print(f"  [+] Actual SSID '{expected_ssid}' in Guest Output: {ssid_found}")
+        print(f"  [+] Host Header Found        : {bridge_heading_found}")
+        print(f"  [+] Status: Connected Found  : {status_found}")
+        print(f"  [+] Actual SSID '{expected_ssid}' Found : {ssid_found}")
+        print(f"  [+] Guest Network Header     : {guest_heading_found}")
+        print(f"  [+] Guest Ethernet: Connected: {guest_eth_found}")
 
-        if not (ssid_found and status_found and bridge_heading_found):
+        if not (ssid_found and status_found and bridge_heading_found and guest_heading_found):
             print("[-] FAILED: Guest did not display the expected host Wi-Fi details.")
             qemu_proc.kill()
             sys.exit(1)
@@ -146,7 +150,7 @@ def main():
         qemu_proc.stdin.flush()
 
         offline_out = read_until("micro-os> ", timeout=10.0)
-        offline_ok = "Host Wi-Fi Status: Offline" in offline_out
+        offline_ok = "Status: Offline" in offline_out
 
         print(f"  [+] Clean Offline Handling Verified: {offline_ok}")
         if not offline_ok:

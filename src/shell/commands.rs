@@ -97,14 +97,17 @@ fn cmd_help() {
 /// Handler for `wifi`: Displays live network configuration and Wi-Fi bridge diagnostics.
 fn cmd_wifi() {
     crate::net::wifi::format_wifi_diagnostics(|line| {
-        if line.starts_with("===") {
+        if line.starts_with("HOST") || line.starts_with("GUEST") {
             vga::set_color(Color::LightCyan, Color::Black);
             kprintln!("{}", line);
-        } else if line.starts_with("Connection Status") || line.starts_with("Notice") {
+        } else if line.starts_with("Status: Connected") || line.starts_with("Guest Ethernet: Connected") {
             vga::set_color(Color::LightGreen, Color::Black);
             kprintln!("{}", line);
-        } else if line.starts_with("Host Wi-Fi") {
+        } else if line.starts_with("Status: Offline") || line.starts_with("Status: Disconnected") || line.starts_with("Guest Ethernet: Disconnected") {
             vga::set_color(Color::LightRed, Color::Black);
+            kprintln!("{}", line);
+        } else if line.starts_with("SSID:") {
+            vga::set_color(Color::Yellow, Color::Black);
             kprintln!("{}", line);
         } else {
             vga::set_color(Color::White, Color::Black);
