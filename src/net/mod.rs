@@ -156,6 +156,16 @@ fn parse_u16_str(s: &str) -> Option<u16> {
 
 /// Performs a complete HTTP/1.1 GET request to `target` (hostname or host:port) and `path`.
 pub fn http_get(target: &str, path: &str) -> Result<HttpResponse, &'static str> {
+    http_get_timeout(target, path, 15_000_000, 20_000_000)
+}
+
+/// Performs an HTTP/1.1 GET request with custom connect and read timeouts.
+pub fn http_get_timeout(
+    target: &str,
+    path: &str,
+    connect_timeout: usize,
+    read_timeout: usize,
+) -> Result<HttpResponse, &'static str> {
     // 1. Parse host and optional port (e.g. "example.com" or "10.0.2.2:8080")
     let (hostname, port) = if let Some(colon) = target.rfind(':') {
         let (h, p_str) = target.split_at(colon);
@@ -168,11 +178,11 @@ pub fn http_get(target: &str, path: &str) -> Result<HttpResponse, &'static str> 
     // 2. Resolve host IP (check if already an IP address, or resolve via DNS)
     let remote_ip = match parse_ipv4_addr(hostname) {
         Some(ip) => ip,
-        None => resolve_dns(hostname, 15_000_000)?,
+        None => resolve_dns(hostname, connect_timeout)?,
     };
 
     // 3. Establish TCP connection
-    let mut stream = tcp_connect(remote_ip, port, 15_000_000)?;
+    let mut stream = tcp_connect(remote_ip, port, connect_timeout)?;
 
     // 4. Format and send HTTP GET request
     let mut req_buf = [0u8; 1024];
@@ -181,7 +191,7 @@ pub fn http_get(target: &str, path: &str) -> Result<HttpResponse, &'static str> 
 
     // 5. Read response stream
     let mut resp_raw = [0u8; 16384];
-    let bytes_read = stream.read_to_end(&mut resp_raw, 20_000_000)?;
+    let bytes_read = stream.read_to_end(&mut resp_raw, read_timeout)?;
 
     // 6. Parse response
     parse_http_response(&resp_raw[..bytes_read])

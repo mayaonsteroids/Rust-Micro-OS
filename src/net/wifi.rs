@@ -56,6 +56,36 @@ fn write_hex2(dst: &mut [u8], offset: &mut usize, val: u8) {
     write_bytes(dst, offset, &[hi, lo]);
 }
 
+fn extract_json_str<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    let key_idx = json.find(key)?;
+    let after_key = &json[key_idx + key.len()..];
+    let colon_idx = after_key.find(':')?;
+    let after_colon = &after_key[colon_idx + 1..];
+    let quote1 = after_colon.find('"')?;
+    let val_start = &after_colon[quote1 + 1..];
+    let quote2 = val_start.find('"')?;
+    Some(&val_start[..quote2])
+}
+
+fn extract_json_raw_val<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    let key_idx = json.find(key)?;
+    let after_key = &json[key_idx + key.len()..];
+    let colon_idx = after_key.find(':')?;
+    let after_colon = after_key[colon_idx + 1..].trim_start();
+    let mut end = 0;
+    for b in after_colon.bytes() {
+        if b == b',' || b == b'}' || b == b'\r' || b == b'\n' {
+            break;
+        }
+        end += 1;
+    }
+    if end > 0 {
+        Some(after_colon[..end].trim())
+    } else {
+        None
+    }
+}
+
 /// Formats and emits full real-time network configuration diagnostics to a callback.
 pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
     let cfg = get_config();
@@ -63,6 +93,110 @@ pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
     let dev_present = is_device_present();
     let link_up = is_link_up();
     let stats = get_statistics();
+
+    // 1. Query Host Wi-Fi Helper over VirtualBox / hypervisor NAT bridge (10.0.2.2:19820)
+    let mut target_buf = [0u8; 32];
+    let mut t_off = 0;
+    for i in 0..4 {
+        write_u8(&mut target_buf, &mut t_off, cfg.gateway[i]);
+        if i < 3 { write_bytes(&mut target_buf, &mut t_off, b"."); }
+    }
+    write_bytes(&mut target_buf, &mut t_off, b":19820");
+    let target_str = core::str::from_utf8(&target_buf[..t_off]).unwrap_or("10.0.2.2:19820");
+
+    let host_wifi_res = crate::net::http_get_timeout(target_str, "/", 1_500_000, 2_000_000);
+
+    emit("=== HOST WI-FI CONNECTION (WINDOWS BRIDGE) ===");
+    match host_wifi_res {
+        Ok(ref resp) if resp.status_code == 200 => {
+            let body = resp.body_str();
+            let status_val = extract_json_str(body, "\"status\"");
+            let ssid_val = extract_json_str(body, "\"ssid\"");
+            let sig_val = extract_json_raw_val(body, "\"signal\"");
+            let chan_val = extract_json_raw_val(body, "\"channel\"");
+            let radio_val = extract_json_str(body, "\"radio_type\"");
+            let auth_val = extract_json_str(body, "\"authentication\"");
+            let rx_val = extract_json_raw_val(body, "\"rx_rate_mbps\"");
+            let tx_val = extract_json_raw_val(body, "\"tx_rate_mbps\"");
+            let iface_val = extract_json_str(body, "\"interface\"");
+
+            let is_connected = status_val == Some("connected");
+            if is_connected {
+                emit("  Host Wi-Fi Status: Connected (Host WLAN Active)");
+                if let Some(ssid) = ssid_val {
+                    let mut line = [0u8; 96];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  SSID:              ");
+                    write_bytes(&mut line, &mut off, ssid.as_bytes());
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+                if let Some(sig) = sig_val {
+                    let mut line = [0u8; 64];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  Signal Strength:   ");
+                    write_bytes(&mut line, &mut off, sig.as_bytes());
+                    write_bytes(&mut line, &mut off, b"%");
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+                if let Some(chan) = chan_val {
+                    let mut line = [0u8; 64];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  Channel:           ");
+                    write_bytes(&mut line, &mut off, chan.as_bytes());
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+                if let Some(radio) = radio_val {
+                    let mut line = [0u8; 64];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  Radio Type:        ");
+                    write_bytes(&mut line, &mut off, radio.as_bytes());
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+                if let Some(auth) = auth_val {
+                    let mut line = [0u8; 64];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  Authentication:    ");
+                    write_bytes(&mut line, &mut off, auth.as_bytes());
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+                if rx_val.is_some() || tx_val.is_some() {
+                    let mut line = [0u8; 96];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  Link Rates:        Rx: ");
+                    write_bytes(&mut line, &mut off, rx_val.unwrap_or("0").as_bytes());
+                    write_bytes(&mut line, &mut off, b" Mbps | Tx: ");
+                    write_bytes(&mut line, &mut off, tx_val.unwrap_or("0").as_bytes());
+                    write_bytes(&mut line, &mut off, b" Mbps");
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+                if let Some(iface) = iface_val {
+                    let mut line = [0u8; 96];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  Host Interface:    ");
+                    write_bytes(&mut line, &mut off, iface.as_bytes());
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+            } else {
+                emit("  Host Wi-Fi Status: Disconnected (No Active Host Wi-Fi)");
+                emit("  SSID:              None");
+                if let Some(iface) = iface_val {
+                    let mut line = [0u8; 96];
+                    let mut off = 0;
+                    write_bytes(&mut line, &mut off, b"  Host Interface:    ");
+                    write_bytes(&mut line, &mut off, iface.as_bytes());
+                    if let Ok(s) = core::str::from_utf8(&line[..off]) { emit(s); }
+                }
+            }
+        }
+        _ => {
+            emit("  Host Wi-Fi Status: Offline (Host Wi-Fi Helper not responding on 10.0.2.2:19820)");
+            emit("  Notice: Start helper on Windows host for live Wi-Fi telemetry:");
+            emit("          python tools/windows_host_wifi_helper.py");
+        }
+    }
+
+    emit("--------------------------------------------------");
+    emit("=== GUEST NETWORK ADAPTER (INTEL 82540EM) ===");
 
     // Detect virtualized hypervisor environment from MAC address vendor OUI
     let is_vbox = mac[0] == 0x08 && mac[1] == 0x00 && mac[2] == 0x27;
@@ -91,8 +225,6 @@ pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
     } else {
         "DISCONNECTED (Link Down)"
     };
-
-    emit("=== NETWORK CONFIGURATION & VIRTUAL ETHERNET DIAGNOSTICS ===");
     
     // Status line
     let mut line = [0u8; 96];
