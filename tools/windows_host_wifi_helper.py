@@ -13,12 +13,67 @@ Complies strictly with security invariants:
 
 import sys
 import os
+import time
 import json
 import re
+import traceback
 import subprocess
+import threading
+import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 PORT = 19820
+HELPER_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(HELPER_DIR, "wifi_helper.log")
+PID_FILE = os.path.join(HELPER_DIR, "wifi_helper.pid")
+
+def log_entry(msg: str):
+    """Appends a timestamped log entry to the helper log file."""
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}\n"
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+    if sys.stdout is not None:
+        try:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+def check_existing_instance() -> bool:
+    """Checks if another helper instance is already running and answering on port 19820."""
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{PORT}/",
+            headers={"User-Agent": "BubbleOS-Helper-Probe"}
+        )
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                if "status" in data or "ssid" in data:
+                    return True
+    except Exception:
+        pass
+    return False
+
+def save_pid():
+    """Writes the current process ID to wifi_helper.pid."""
+    try:
+        with open(PID_FILE, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+    except Exception as e:
+        log_entry(f"Failed to write PID file: {e}")
+
+def remove_pid():
+    """Removes the PID file upon clean shutdown."""
+    try:
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
+    except Exception:
+        pass
 
 def get_wifi_info_via_netsh():
     """Attempts to retrieve Wi-Fi connection info via netsh wlan show interfaces."""
@@ -312,52 +367,80 @@ def get_wifi_info():
         "interface": "Wi-Fi Adapter",
     }
 
+# Thread-safe telemetry cache updated in background every 2 seconds
+LATEST_WIFI_INFO = None
+WIFI_INFO_LOCK = threading.Lock()
+
+def wifi_telemetry_worker():
+    """Background worker continuously refreshing Wi-Fi telemetry so HTTP requests respond in <0.5ms."""
+    global LATEST_WIFI_INFO
+    while True:
+        try:
+            fresh_info = get_wifi_info()
+            with WIFI_INFO_LOCK:
+                LATEST_WIFI_INFO = fresh_info
+        except Exception as e:
+            log_entry(f"Background telemetry worker error: {e}")
+        time.sleep(2.0)
+
 class WifiHelperHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
 
     def log_message(self, format, *args):
-        # Print clean, quiet access logs
-        sys.stdout.write(f"[HELPER] {self.address_string()} - {format % args}\n")
-        sys.stdout.flush()
+        # Print clean, quiet access logs to file and stdout
+        log_entry(f"[HTTP] {self.address_string()} - {format % args}")
 
     def do_GET(self):
-        info = get_wifi_info()
-        payload = json.dumps(info, indent=2).encode("utf-8")
+        try:
+            with WIFI_INFO_LOCK:
+                info = dict(LATEST_WIFI_INFO) if LATEST_WIFI_INFO else get_wifi_info()
+            payload = json.dumps(info, indent=2).encode("utf-8")
 
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Connection", "close")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(payload)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(payload)
+        except Exception as e:
+            log_entry(f"Error serving GET request from {self.address_string()}: {e}\n{traceback.format_exc()}")
 
 def main():
-    print("=================================================================")
-    print("   BUBBLEOS WINDOWS HOST WI-FI HELPER SERVICE (READ-ONLY)        ")
-    print("=================================================================")
-    
-    current_info = get_wifi_info()
-    print(f"[*] Detected Host Wi-Fi:")
-    print(f"    - SSID:           {current_info.get('ssid')}")
-    print(f"    - Status:         {current_info.get('status')}")
-    print(f"    - Signal:         {current_info.get('signal')}%")
-    print(f"    - Channel:        {current_info.get('channel')}")
-    print(f"    - Radio Type:     {current_info.get('radio_type')}")
-    print(f"    - Authentication: {current_info.get('authentication')}")
-    print(f"    - Link Rates:     Rx: {current_info.get('rx_rate_mbps')} Mbps | Tx: {current_info.get('tx_rate_mbps')} Mbps")
-    print(f"    - Adapter:        {current_info.get('interface')}")
-    print(f"[*] Security Invariant: Passwords are NEVER queried or served.")
-    print(f"[*] Listening on http://0.0.0.0:{PORT}/ ...")
-    print(f"[*] Press Ctrl+C to stop.")
-    print("=================================================================")
+    if check_existing_instance():
+        log_entry(f"BubbleOS Wi-Fi Helper is already active and responding on port {PORT}. Exiting duplicate instance.")
+        sys.exit(0)
 
-    server = HTTPServer(("0.0.0.0", PORT), WifiHelperHandler)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n[*] Stopping Wi-Fi Helper server...")
-        server.server_close()
+    save_pid()
+    log_entry(f"BubbleOS Wi-Fi Helper starting on port {PORT} (PID {os.getpid()})...")
+
+    global LATEST_WIFI_INFO
+    current_info = get_wifi_info()
+    with WIFI_INFO_LOCK:
+        LATEST_WIFI_INFO = current_info
+    log_entry(
+        f"Initial telemetry: SSID='{current_info.get('ssid')}', Status='{current_info.get('status')}', "
+        f"Signal={current_info.get('signal')}%, Adapter='{current_info.get('interface')}'"
+    )
+
+    # Start background polling worker
+    worker_thread = threading.Thread(target=wifi_telemetry_worker, daemon=True)
+    worker_thread.start()
+    log_entry("Background telemetry worker thread started.")
+
+    while True:
+        try:
+            server = HTTPServer(("0.0.0.0", PORT), WifiHelperHandler)
+            log_entry(f"HTTP server bound to 0.0.0.0:{PORT}. Ready for BubbleOS VirtualBox queries.")
+            server.serve_forever()
+        except KeyboardInterrupt:
+            log_entry("Shutdown requested by user/signal. Exiting.")
+            break
+        except Exception as e:
+            log_entry(f"Unexpected server error: {e}\n{traceback.format_exc()}\nRestarting server in 2 seconds...")
+            time.sleep(2.0)
+
+    remove_pid()
 
 if __name__ == "__main__":
     main()

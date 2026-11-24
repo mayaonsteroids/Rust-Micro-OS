@@ -44,9 +44,19 @@ pub fn init() -> Result<(), &'static str> {
         config::set_mac_address(mac);
     }
 
-    if is_link_up() {
+    // Poll for physical link up with bounded timeout (~50ms) to accommodate VirtualBox PHY autonegotiation
+    let mut link_active = false;
+    for _ in 0..3_000_000 {
+        if is_link_up() {
+            link_active = true;
+            break;
+        }
+        core::hint::spin_loop();
+    }
+
+    if link_active {
         crate::info!("[NET-INIT] E1000 hardware link active. Attempting startup DHCP exchange...");
-        match renew_dhcp(2_500_000) {
+        match renew_dhcp(3_000_000) {
             Ok(lease) => {
                 crate::info!(
                     "[DHCP] Startup lease acquired: IP {}.{}.{}.{} | GW {}.{}.{}.{} | DNS {}.{}.{}.{}",

@@ -22,3 +22,11 @@ serial.log
 iso/staging/
 traces/*.raw
 results/*.tmp
+
+# Runtime logs and helper runtime files
+*.log
+tools/*.log
+tools/*.pid
+micro_os.iso
+*.sha256
+

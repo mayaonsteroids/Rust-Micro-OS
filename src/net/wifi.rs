@@ -115,7 +115,7 @@ pub fn format_wifi_diagnostics<F: FnMut(&str)>(mut emit: F) {
     write_bytes(&mut target_buf, &mut t_off, b":19820");
     let target_str = core::str::from_utf8(&target_buf[..t_off]).unwrap_or("10.0.2.2:19820");
 
-    let host_wifi_res = crate::net::http_get_timeout(target_str, "/", 1_500_000, 2_000_000);
+    let host_wifi_res = crate::net::http_get_timeout(target_str, "/", 8_000_000, 15_000_000);
 
     emit("HOST WI-FI CONNECTION");
     match host_wifi_res {
