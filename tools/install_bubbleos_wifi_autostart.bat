@@ -44,18 +44,9 @@ if not defined PYTHONW (
 )
 
 if not defined PYTHONW (
-    echo [-] Warning: pythonw.exe not found on PATH. Falling back to python.exe.
-    where python.exe >nul 2>&1
-    if !errorlevel! equ 0 (
-        for /f "delims=" %%I in ('where python.exe') do (
-            if not defined PYTHONW set "PYTHONW=%%I"
-        )
-    )
-)
-
-if not defined PYTHONW (
-    echo [-] Fatal: Python is not installed or not found on PATH.
-    echo     Please install Python 3 on Windows from python.org or the Microsoft Store.
+    echo [-] Fatal: pythonw.exe was not found on your system.
+    echo     pythonw.exe is strictly required for silent background execution without flashing console windows.
+    echo     Please ensure Python 3 is installed with the Windows GUI launcher [pythonw.exe].
     pause
     exit /b 1
 )
@@ -98,7 +89,21 @@ echo.
 echo [*] Starting BubbleOS Wi-Fi Helper silently via wscript.exe (hidden window mode)...
 wscript.exe "%VBS_FILE%"
 
-REM 5. Verify helper responsiveness on port 19820
+REM 5. Configure scoped Windows Firewall rule if elevated
+echo [*] Configuring scoped Windows Firewall rule for BubbleOS Helper port 19820...
+netsh advfirewall firewall show rule name="BubbleOS_WiFi_Helper" >nul 2>&1
+if !errorlevel! neq 0 (
+    netsh advfirewall firewall add rule name="BubbleOS_WiFi_Helper" dir=in action=allow protocol=TCP localport=19820 remoteip=127.0.0.1,10.0.2.0/24 description="BubbleOS Host Wi-Fi Helper restricted to VirtualBox NAT and localhost" >nul 2>&1
+    if !errorlevel! equ 0 (
+        echo [+] Windows Firewall rule added successfully.
+    ) else (
+        echo [i] Note: Run as Administrator to register Windows Firewall rule. Application security filtering is active.
+    )
+) else (
+    echo [+] Scoped Windows Firewall rule already active.
+)
+
+REM 6. Verify helper responsiveness on port 19820
 echo [*] Verifying helper endpoint at http://127.0.0.1:19820/ ...
 powershell -NoProfile -Command "for ($i = 0; $i -lt 6; $i++) { Start-Sleep -Milliseconds 500; try { $res = Invoke-RestMethod -Uri 'http://127.0.0.1:19820/' -TimeoutSec 2; Write-Host '    [+] Connected to SSID:' $res.ssid; Write-Host '    [+] Signal Strength  :' ($res.signal.ToString() + '%%'); Write-Host '    [+] Host Adapter     :' $res.interface; break } catch { if ($i -eq 5) { Write-Host '    [!] Helper started (PID written to tools\wifi_helper.pid)' } } }"
 

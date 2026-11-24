@@ -9,8 +9,8 @@ BubbleOS is a bare-metal, 64-bit educational operating system written in Rust fo
 </p>
 
 <p align="center">
-  <a href="https://huggingface.co/mayaonsteroids/BubbleOS">Download the BubbleOS ISO</a> ·
-  <a href="https://github.com/mayaonsteroids/Rust-Micro-OS/tree/milestone-17-network-browser">Source code (development branch)</a>
+  <a href="https://huggingface.co/mayaonsteroids/BubbleOS">Download the BubbleOS ISO (Hugging Face)</a> ·
+  <a href="https://github.com/mayaonsteroids/Rust-Micro-OS">Source Code (GitHub main)</a>
 </p>
 
 ![OS](https://img.shields.io/badge/OS-BubbleOS-9B78D0)
@@ -98,6 +98,33 @@ wifi
 ```
 
 `wifi` and `net` display verified network configuration, hardware link status, and VirtualBox / hypervisor NAT bridge diagnostics. The guest network interface is genuine emulated Intel 82540EM Gigabit Ethernet, connected to the hypervisor NAT router which transparently shares the host computer's Wi-Fi or LAN connection. The graphical Network Control Centre provides one-click interactive actions: `[ RENEW IP ]`, `[ PING GATEWAY ]`, `[ TEST DNS ]`, and `[ REFRESH ]`.
+
+### Host Wi-Fi Helper & Automatic Startup
+
+BubbleOS connects to the host machine's Wi-Fi environment through a lightweight, read-only Windows telemetry service located at `tools/windows_host_wifi_helper.py`.
+
+- **Architecture:** The helper queries the Windows in-process WLAN API (`wlanapi.dll`) and Network List Manager to retrieve the active Wi-Fi SSID, connection status, signal strength, channel, radio type, authentication mode, and link speed.
+- **Security Invariants:** Passwords and credentials are **never queried, accessed, or served**. Requests are filtered strictly to local loopback and VirtualBox guest interfaces.
+- **Zero-Flicker Background Operation:** The helper runs silently in the background using `pythonw.exe` without creating command prompts, terminal windows, or console flashes.
+- **One-Time Installation:** Run `tools\install_bubbleos_wifi_autostart.bat`. This automatically configures a silent VBScript launcher in the user's Startup folder (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`) executed by `wscript.exe` with hidden window mode. Once installed, the helper starts silently every time Windows logs in.
+- **Uninstallation:** Run `tools\uninstall_bubbleos_wifi_autostart.bat` to cleanly remove the startup launcher, deregister firewall rules, and terminate running processes.
+
+### VirtualBox Virtual Machine Requirements
+
+To run BubbleOS in VirtualBox with full networking and audio capabilities:
+
+1. **System & CPU:** 64-bit OS type (`Other / Unknown (64-bit)`), 512 MB+ RAM, 1 vCPU.
+2. **Network Adapter 1:**
+   - Attached to: **NAT**
+   - Adapter Type: **Intel PRO/1000 MT Desktop (82540EM)**
+   - Cable Connected: **Checked (On)**
+   - NAT Host Access: Enable localhost forwarding so the guest can query the helper:
+     ```cmd
+     VBoxManage modifyvm "<VM_Name>" --nat-localhostreachable1 on
+     ```
+3. **Audio:** Enable Audio, Host Audio Driver: Windows DirectSound, Audio Controller: **ICH AC97**.
+4. **Display:** Graphics Controller: **VBoxVGA**, Video Memory: 16 MB or higher.
+5. **Storage:** Optical drive attached to `iso/micro_os.iso` with legacy BIOS boot.
 
 ## Browser
 
@@ -264,11 +291,11 @@ These scripts are test harnesses; run them in the documented development environ
 
 See `docs/` for the detailed architecture notes and historical milestone reports.
 
-## Downloads
+## Downloads & Links
 
 - **Bootable BubbleOS ISO:** [Download micro_os.iso from Hugging Face](https://huggingface.co/mayaonsteroids/BubbleOS/resolve/main/micro_os.iso)
-- **Hugging Face repository:** [mayaonsteroids/BubbleOS](https://huggingface.co/mayaonsteroids/BubbleOS)
-- **Source code:** [Rust-Micro-OS — milestone-17-network-browser](https://github.com/mayaonsteroids/Rust-Micro-OS/tree/milestone-17-network-browser)
+- **Hugging Face Repository:** [mayaonsteroids/BubbleOS](https://huggingface.co/mayaonsteroids/BubbleOS)
+- **Source Code Repository:** [Rust-Micro-OS (GitHub main branch)](https://github.com/mayaonsteroids/Rust-Micro-OS)
 
 ## License
 

@@ -43,6 +43,14 @@ if !errorlevel! equ 0 (
     python.exe "%SCRIPT_DIR%windows_host_wifi_helper.py" --stop >nul 2>&1
 )
 
+REM 5. Remove scoped Windows Firewall rule if present
+netsh advfirewall firewall show rule name="BubbleOS_WiFi_Helper" >nul 2>&1
+if !errorlevel! equ 0 (
+    echo [*] Removing Windows Firewall rule...
+    netsh advfirewall firewall delete rule name="BubbleOS_WiFi_Helper" >nul 2>&1
+    echo [+] Windows Firewall rule removed.
+)
+
 echo.
 echo =================================================================
 echo   [SUCCESS] BubbleOS Wi-Fi Helper autostart has been removed.
