@@ -27,8 +27,7 @@ results/*.tmp
 *.log
 tools/*.log
 tools/*.pid
-micro_os.iso
-/iso/*.iso
+*.iso
 scripts/shim.bin
 *.sha256
 

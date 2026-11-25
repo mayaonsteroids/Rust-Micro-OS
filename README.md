@@ -277,7 +277,7 @@ These scripts are test harnesses; run them in the documented development environ
 │   ├── shell/
 │   ├── sync/
 │   └── task/
-└── submission/  Final report and selected milestone evidence
+└── submission/  College course submission deliverables (4 project ZIPs and 1 Lab Record PDF)
 ```
 
 ## Current limitations
